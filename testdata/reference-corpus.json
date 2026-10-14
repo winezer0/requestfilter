@@ -1,0 +1,96 @@
+{
+  "metadata": {
+    "reference_repository": "winezer0/passive-scan-client-plus",
+    "reference_commit": "69e8da271e5e46862edb0b5b522ae3fa554df0c4",
+    "oracle": "source-derived; request parsing is delegated to Burp IExtensionHelpers and was not executable in the reference checkout",
+    "evidence": [
+      "src/main/java/burp/HttpAndHttpsProxy.java: PARAM early-return and SMART request-key construction",
+      "src/main/java/burp/Utils.java: IParametersToJsonStr and isUniqReqInfo",
+      "src/main/java/burp/Utils.java: ExtractIParamsAuthParam",
+      "src/main/resources/psc.config.yml: AUTH_INFO_REGX"
+    ]
+  },
+  "cases": [
+    {
+      "name": "query value changes preserve a parameter shape",
+      "first": {"method":"GET","url":"https://example.test/items?id=1","body_captured":true},
+      "second": {"method":"GET","url":"https://example.test/items?id=2","body_captured":true},
+      "status":"complete",
+      "parameters":[{"location":"query","name":"id"}],
+      "second_action":"drop",
+      "reference_outcome":"conditional_duplicate",
+      "reference_policy":"SMART groups by URL without query and content type, then compares parameter names with values replaced by a presence marker, when Burp exposes the same parsed parameter name."
+    },
+    {
+      "name": "url encoded form values do not change the shape",
+      "first": {"method":"POST","url":"https://example.test/items","headers":{"Content-Type":["application/x-www-form-urlencoded"]},"body":"name=alice&tag=one","body_captured":true},
+      "second": {"method":"POST","url":"https://example.test/items","headers":{"Content-Type":["application/x-www-form-urlencoded"]},"body":"name=bob&tag=two","body_captured":true},
+      "status":"complete",
+      "parameters":[{"location":"form","name":"name"},{"location":"form","name":"tag"}],
+      "second_action":"drop",
+      "reference_outcome":"conditional_duplicate",
+      "reference_policy":"SMART replaces parsed parameter values with a presence marker; exact Burp extraction of this request body is not captured by this source-only corpus."
+    },
+    {
+      "name": "nested JSON values retain their path shape",
+      "first": {"method":"POST","url":"https://example.test/items","headers":{"Content-Type":["application/json"]},"body":"{\"user\":{\"id\":1}}","body_captured":true},
+      "second": {"method":"POST","url":"https://example.test/items","headers":{"Content-Type":["application/json"]},"body":"{\"user\":{\"id\":2}}","body_captured":true},
+      "status":"complete",
+      "parameters":[{"location":"json_body","name":"/user/id"}],
+      "second_action":"drop",
+      "reference_outcome":"conditional_duplicate",
+      "reference_policy":"The reference has a special recursive JSON path conversion before SMART and ignores values; its exact path serialization differs from this package."
+    },
+    {
+      "name": "XML element and attribute names define the shape",
+      "first": {"method":"POST","url":"https://example.test/items","headers":{"Content-Type":["application/xml"]},"body":"<user id=\"1\"><name>Ada</name></user>","body_captured":true},
+      "second": {"method":"POST","url":"https://example.test/items","headers":{"Content-Type":["application/xml"]},"body":"<user id=\"2\"><name>Grace</name></user>","body_captured":true},
+      "status":"complete",
+      "parameters":[{"location":"xml_body","name":"/user/@id"},{"location":"xml_body","name":"/user/name"}],
+      "second_action":"drop",
+      "reference_outcome":"not_determined_by_source",
+      "reference_policy":"Burp content-type parsing is delegated to its SDK; this package's XML paths and element/attribute distinction are an explicit extension."
+    },
+    {
+      "name": "multipart field and file field names define the shape",
+      "first": {"method":"POST","url":"https://example.test/upload","headers":{"Content-Type":["multipart/form-data; boundary=corpus"]},"body":"--corpus\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\nfirst\r\n--corpus\r\nContent-Disposition: form-data; name=\"upload\"; filename=\"one.txt\"\r\nContent-Type: text/plain\r\n\r\none\r\n--corpus--\r\n","body_captured":true},
+      "second": {"method":"POST","url":"https://example.test/upload","headers":{"Content-Type":["multipart/form-data; boundary=corpus"]},"body":"--corpus\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\nsecond\r\n--corpus\r\nContent-Disposition: form-data; name=\"upload\"; filename=\"two.txt\"\r\nContent-Type: text/plain\r\n\r\ntwo\r\n--corpus--\r\n","body_captured":true},
+      "status":"complete",
+      "parameters":[{"location":"multipart_field","name":"caption"},{"location":"multipart_file","name":"upload"}],
+      "second_action":"drop",
+      "reference_outcome":"not_determined_by_source",
+      "reference_policy":"The reference delegates multipart parameter extraction to Burp; the exact fixture result is not captured by the checked-in source."
+    },
+    {
+      "name": "same parameter name in query and form keeps distinct locations",
+      "first": {"method":"POST","url":"https://example.test/items?id=1","headers":{"Content-Type":["application/x-www-form-urlencoded"]},"body":"","body_captured":true},
+      "second": {"method":"POST","url":"https://example.test/items?id=2","headers":{"Content-Type":["application/x-www-form-urlencoded"]},"body":"id=2","body_captured":true},
+      "status":"complete",
+      "parameters":[{"location":"query","name":"id"}],
+      "second_parameters":[{"location":"form","name":"id"},{"location":"query","name":"id"}],
+      "second_action":"allow",
+      "reference_outcome":"conditional_duplicate",
+      "reference_policy":"If Burp returns both IParameter entries, reference SMART flattens both into one JSON key by name and replaces both values with the same marker; this package intentionally includes location in shape identity."
+    },
+    {
+      "name": "malformed JSON preserves query parsing and bypasses SMART state",
+      "first": {"method":"POST","url":"https://example.test/items?id=1","headers":{"Content-Type":["application/json"]},"body":"{\"user\":","body_captured":true},
+      "second": {"method":"POST","url":"https://example.test/items?id=2","headers":{"Content-Type":["application/json"]},"body":"{\"user\":","body_captured":true},
+      "status":"partial",
+      "parameters":[{"location":"query","name":"id"}],
+      "second_action":"allow",
+      "reference_outcome":"not_determined_by_source",
+      "reference_policy":"Malformed-body behavior depends on Burp parser output and is not specified by the reference source."
+    },
+    {
+      "name": "unknown binary format is incomplete and bypasses SMART state",
+      "first": {"method":"POST","url":"https://example.test/items?id=1","headers":{"Content-Type":["application/octet-stream"]},"body":"\u0000\u0001","body_captured":true},
+      "second": {"method":"POST","url":"https://example.test/items?id=2","headers":{"Content-Type":["application/octet-stream"]},"body":"\u0000\u0002","body_captured":true},
+      "status":"partial",
+      "parameters":[{"location":"query","name":"id"}],
+      "second_action":"allow",
+      "reference_outcome":"not_determined_by_source",
+      "reference_policy":"Unknown content types are not given a partial-parse contract by the reference source."
+    }
+  ]
+}

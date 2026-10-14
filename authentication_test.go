@@ -166,3 +166,162 @@ func TestAuthenticationCredentialsAreNotStoredInSessionState(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthenticationSourcesAcrossAllStrategies(t *testing.T) {
+	strategies := []DedupStrategy{
+		DedupStrategySelectedFieldsHash,
+		DedupStrategyRequireParameters,
+		DedupStrategyParameterShapeCoverage,
+	}
+	sources := []struct {
+		name         string
+		header       string
+		customHeader bool
+		callerID     bool
+	}{
+		{name: "Cookie", header: "Cookie"},
+		{name: "Authorization", header: "Authorization"},
+		{name: "keyword header", header: "x-SeSsIoN-id"},
+		{name: "custom header", header: "X-API-Key", customHeader: true},
+		{name: "caller group ID", callerID: true},
+	}
+
+	for _, strategy := range strategies {
+		for _, source := range sources {
+			t.Run(string(strategy)+"/"+source.name, func(t *testing.T) {
+				options := Options{DedupStrategy: strategy}
+				if source.customHeader {
+					options.AdditionalAuthenticationHeaderNames = []string{source.header}
+				}
+				session, err := NewSession(options)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer session.Close()
+
+				makeRequest := func(identity, queryValue string) Request {
+					url := "https://example.test/items"
+					if strategy == DedupStrategySelectedFieldsHash {
+						url += "?id=1"
+					} else if strategy == DedupStrategyParameterShapeCoverage {
+						url += "?id=" + queryValue
+					}
+					req := Request{Method: "GET", URL: url, BodyCaptured: true, Header: make(http.Header)}
+					if source.callerID {
+						req.AuthenticationGroupID = identity
+					} else if source.header == "Cookie" {
+						req.Header[source.header] = []string{"SESSION=" + identity}
+					} else {
+						req.Header[source.header] = []string{identity}
+					}
+					return req
+				}
+				reserve := func(request Request, want Action, commit bool) {
+					t.Helper()
+					decision, reservation, err := session.Reserve(request)
+					if err != nil || decision.Action != want {
+						t.Fatalf("Reserve() = (%#v, %v), want action %q", decision, err, want)
+					}
+					if commit {
+						if err := session.Commit(reservation); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+
+				reserve(makeRequest("identity-a", "1"), ActionAllow, true)
+				reserve(makeRequest("identity-a", "2"), ActionDrop, false)
+				reserve(makeRequest("identity-b", "3"), ActionAllow, true)
+				reserve(makeRequest("identity-b", "4"), ActionDrop, false)
+			})
+		}
+	}
+}
+
+func TestCallerAuthenticationGroupCombinesWithDetectedHeaders(t *testing.T) {
+	strategies := []DedupStrategy{
+		DedupStrategySelectedFieldsHash,
+		DedupStrategyRequireParameters,
+		DedupStrategyParameterShapeCoverage,
+	}
+	for _, strategy := range strategies {
+		t.Run(string(strategy), func(t *testing.T) {
+			session, err := NewSession(Options{DedupStrategy: strategy})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer session.Close()
+
+			makeRequest := func(cookie, group, query string) Request {
+				url := "https://example.test/items"
+				if strategy == DedupStrategySelectedFieldsHash {
+					url += "?id=1"
+				} else if strategy == DedupStrategyParameterShapeCoverage {
+					url += "?id=" + query
+				}
+				return Request{
+					Method: "GET", URL: url, BodyCaptured: true,
+					Header: http.Header{"Cookie": {"SESSION=" + cookie}}, AuthenticationGroupID: group,
+				}
+			}
+			reserve := func(request Request, want Action, commit bool) {
+				t.Helper()
+				decision, reservation, err := session.Reserve(request)
+				if err != nil || decision.Action != want {
+					t.Fatalf("Reserve() = (%#v, %v), want action %q", decision, err, want)
+				}
+				if commit {
+					if err := session.Commit(reservation); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+
+			reserve(makeRequest("cookie-a", "caller-a", "1"), ActionAllow, true)
+			reserve(makeRequest("cookie-b", "caller-a", "2"), ActionAllow, true)
+			reserve(makeRequest("cookie-b", "caller-b", "3"), ActionAllow, true)
+			reserve(makeRequest("cookie-b", "caller-b", "4"), ActionDrop, false)
+		})
+	}
+}
+
+func TestProxyAuthorizationAloneDoesNotPartitionAnyStrategy(t *testing.T) {
+	strategies := []DedupStrategy{
+		DedupStrategySelectedFieldsHash,
+		DedupStrategyRequireParameters,
+		DedupStrategyParameterShapeCoverage,
+	}
+	for _, strategy := range strategies {
+		t.Run(string(strategy), func(t *testing.T) {
+			session, err := NewSession(Options{DedupStrategy: strategy})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer session.Close()
+
+			makeRequest := func(proxyCredential, query string) Request {
+				url := "https://example.test/items"
+				if strategy == DedupStrategySelectedFieldsHash {
+					url += "?id=1"
+				} else if strategy == DedupStrategyParameterShapeCoverage {
+					url += "?id=" + query
+				}
+				return Request{
+					Method: "GET", URL: url, BodyCaptured: true,
+					Header: http.Header{"Proxy-Authorization": {proxyCredential}},
+				}
+			}
+			first, reservation, err := session.Reserve(makeRequest("Basic proxy-one", "1"))
+			if err != nil || first.Action != ActionAllow {
+				t.Fatalf("Reserve(first) = (%#v, %v), want allow", first, err)
+			}
+			if err := session.Commit(reservation); err != nil {
+				t.Fatal(err)
+			}
+			second, _, err := session.Reserve(makeRequest("Basic proxy-two", "2"))
+			if err != nil || second.Action != ActionDrop {
+				t.Fatalf("Reserve(second) = (%#v, %v), want proxy credentials not to partition", second, err)
+			}
+		})
+	}
+}
