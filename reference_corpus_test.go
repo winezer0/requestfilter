@@ -10,12 +10,21 @@ import (
 
 type referenceCorpus struct {
 	Metadata struct {
-		Repository string   `json:"reference_repository"`
-		Commit     string   `json:"reference_commit"`
-		Oracle     string   `json:"oracle"`
-		Evidence   []string `json:"evidence"`
+		Repository string          `json:"reference_repository"`
+		Commit     string          `json:"reference_commit"`
+		Oracle     string          `json:"oracle"`
+		Evidence   []string        `json:"evidence"`
+		Rules      []referenceRule `json:"rules"`
 	} `json:"metadata"`
 	Cases []referenceCorpusCase `json:"cases"`
+}
+
+type referenceRule struct {
+	Mode            string `json:"mode"`
+	SourceBehavior  string `json:"source_behavior"`
+	PackageBehavior string `json:"package_behavior"`
+	Difference      string `json:"difference"`
+	Source          string `json:"source"`
 }
 
 type referenceCorpusCase struct {
@@ -56,6 +65,23 @@ func TestReferenceBehaviorCorpus(t *testing.T) {
 	}
 	if corpus.Metadata.Repository == "" || corpus.Metadata.Commit == "" || corpus.Metadata.Oracle == "" || len(corpus.Metadata.Evidence) == 0 {
 		t.Fatal("reference corpus must identify its source snapshot and oracle limits")
+	}
+	wantModes := map[string]bool{"HASH": false, "PARAM": false, "SMART": false, "AUTH": false}
+	for _, rule := range corpus.Metadata.Rules {
+		if _, ok := wantModes[rule.Mode]; !ok {
+			t.Errorf("unknown reference rule mode %q", rule.Mode)
+			continue
+		}
+		if wantModes[rule.Mode] || rule.SourceBehavior == "" || rule.PackageBehavior == "" || rule.Difference == "" || rule.Source == "" {
+			t.Errorf("reference rule %q is duplicate or incomplete: %#v", rule.Mode, rule)
+			continue
+		}
+		wantModes[rule.Mode] = true
+	}
+	for mode, found := range wantModes {
+		if !found {
+			t.Errorf("reference corpus is missing the %s source rule", mode)
+		}
 	}
 	if len(corpus.Cases) == 0 {
 		t.Fatal("reference corpus must contain cases")

@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+// PARAM intentionally differs from the reference's early filter: the first
+// complete empty-parameter request passes here and only committed repeats drop.
 func TestRequireParametersAllowsFirstAndDropsRepeatedCompleteNoParameterRequests(t *testing.T) {
 	tests := []struct {
 		name    string

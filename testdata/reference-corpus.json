@@ -8,6 +8,36 @@
       "src/main/java/burp/Utils.java: IParametersToJsonStr and isUniqReqInfo",
       "src/main/java/burp/Utils.java: ExtractIParamsAuthParam",
       "src/main/resources/psc.config.yml: AUTH_INFO_REGX"
+    ],
+    "rules": [
+      {
+        "mode": "HASH",
+        "source_behavior": "When enabled, keys by raw request URL and appends an MD5 of the body byte-array string when the proxy captured a non-null POST body; optional auth data is appended when AUTH is enabled.",
+        "package_behavior": "Independent selected-field SHA-256 fingerprint over method, normalized URL, Content-Type, body-capture state, body bytes, and optional configured headers; authentication is a separate partition.",
+        "difference": "Fingerprint fields, encoding, and mode composition differ.",
+        "source": "HttpAndHttpsProxy.java: HASH key construction; Utils.java: calcReqInfoHash"
+      },
+      {
+        "mode": "PARAM",
+        "source_behavior": "When enabled, immediately drops every request whose Burp parameter list is empty, including the first; parameterized requests continue to other enabled modes.",
+        "package_behavior": "Independent strategy: parameterized or incomplete requests pass; a complete empty request is allowed once per group and endpoint after commit, then repeats drop.",
+        "difference": "First complete empty request passes in this package; strategies do not compose.",
+        "source": "HttpAndHttpsProxy.java: REQ_PARAM early return before SMART/HASH"
+      },
+      {
+        "mode": "SMART",
+        "source_behavior": "Keys by URL without query, Burp content type, and optional auth map; parameter values become a presence marker, keys are flattened by name, and newly seen names are merged cumulatively.",
+        "package_behavior": "Independent coverage keyed by normalized endpoint, auth group, method, scheme/host/port/path, and media type; coverage identity retains parameter location and name, ignores values, and tracks the empty shape.",
+        "difference": "Reference key omits method and flattened names lose location identity; package partitions by method and preserves locations.",
+        "source": "HttpAndHttpsProxy.java: SMART key construction; Utils.java: IParametersToJsonStr/isUniqReqInfo"
+      },
+      {
+        "mode": "AUTH",
+        "source_behavior": "Optional auth extraction selects parameter and header names matching token|auth|sessid|session case-insensitively; Proxy-Authorization also matches the auth substring.",
+        "package_behavior": "Cookie, Authorization, common token/auth/session headers, custom names, and caller AuthenticationGroupID create the group; Proxy-Authorization is excluded.",
+        "difference": "Package handles whole Cookie/Authorization sources and deliberately excludes proxy credentials.",
+        "source": "Utils.java: ExtractIParamsAuthParam/isMatchKeywords; psc.config.yml: AUTH_INFO_REGX"
+      }
     ]
   },
   "cases": [
@@ -71,6 +101,16 @@
       "second_action":"allow",
       "reference_outcome":"conditional_duplicate",
       "reference_policy":"If Burp returns both IParameter entries, reference SMART flattens both into one JSON key by name and replaces both values with the same marker; this package intentionally includes location in shape identity."
+    },
+    {
+      "name": "SMART reference key omits HTTP method",
+      "first": {"method":"GET","url":"https://example.test/items?id=1","body_captured":true},
+      "second": {"method":"POST","url":"https://example.test/items?id=2","body_captured":true},
+      "status":"complete",
+      "parameters":[{"location":"query","name":"id"}],
+      "second_action":"allow",
+      "reference_outcome":"conditional_duplicate",
+      "reference_policy":"If both Burp requests expose the same parameter name and content type, reference SMART uses the same URL-without-query/content-type key and can drop the second request; this package intentionally partitions SMART coverage by HTTP method."
     },
     {
       "name": "malformed JSON preserves query parsing and bypasses SMART state",
