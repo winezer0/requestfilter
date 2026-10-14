@@ -58,7 +58,8 @@ This policy was superseded by the independent HASH/PARAM/SMART strategy API belo
 
 - Replaced `ParameterPolicy` with `DedupStrategy`: `None`, `SelectedFieldsHash`, `RequireParameters`, and `ParameterShapeCoverage`. Exactly one strategy is selected per session; the zero value does not filter.
 - HASH defaults to method, normalized URL, Content-Type, body-capture state, and body bytes; caller-specified header names are additive. AUTH is a separate authentication group applied before each strategy.
-- PARAM drops only completely parsed requests with no parameters and allows incomplete parsing. It does not hash or retain request dedup state.
+- PARAM tracks only completely parsed empty-parameter endpoint groups: the first committed request per authentication group, method, path, and media type is allowed, and later repeats are dropped. Parameter-bearing and incomplete requests pass without state.
 - SMART deduplicates complete parameter location/name shapes, ignores values, treats an empty parameter set as a shape, and allows incomplete parsing without HASH fallback.
 - Adapted session reservation accounting so strategies without persistent dedup state do not retain request entries after commit.
-- Verification passed: build, full tests (89 tests), race detector, and vet. Statement coverage is 90.3%; Go caches used `go-build` and `.gomod-cache`.
+- PARAM duplicate tracking is endpoint-scoped and includes the authentication group. The first complete empty-parameter request is held as a reservation and recorded only after commit; release allows retry.
+- Verification passed: build, full tests (91 tests), race detector, and vet. Statement coverage is 90.1%; Go caches used `go-build` and `.gomod-cache`.

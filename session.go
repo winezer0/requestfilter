@@ -17,6 +17,8 @@ type Session struct {
 	stateEntries int
 	exact        map[string]time.Time
 	pendingExact map[string]uint64
+	emptyParams  map[string]time.Time
+	pendingEmpty map[string]uint64
 	pending      map[uint64]*reservationState
 	coverage     map[string]*coverageState
 }
@@ -26,6 +28,7 @@ type reservationState struct {
 	endpointKey   string
 	parameterIDs  []string
 	trackHash     bool
+	trackEmpty    bool
 	trackCoverage bool
 	expiresAt     time.Time
 }
@@ -47,6 +50,7 @@ func NewSession(options Options) (*Session, error) {
 	session := &Session{
 		options: normalized,
 		exact:   make(map[string]time.Time), pendingExact: make(map[string]uint64),
+		emptyParams: make(map[string]time.Time), pendingEmpty: make(map[string]uint64),
 		pending: make(map[uint64]*reservationState), coverage: make(map[string]*coverageState),
 	}
 	if _, err := rand.Read(session.id[:]); err != nil {
@@ -82,6 +86,8 @@ func (session *Session) Reserve(request Request) (Decision, Reservation, error) 
 		Fingerprint: normalized.fingerprint, ParameterStatus: normalized.parameterStatus,
 	}
 	trackHash := session.options.DedupStrategy == DedupStrategySelectedFieldsHash
+	trackEmpty := session.options.DedupStrategy == DedupStrategyRequireParameters &&
+		normalized.parameterStatus == ParameterStatusComplete && len(normalized.parameters) == 0
 	trackCoverage := session.options.DedupStrategy == DedupStrategyParameterShapeCoverage &&
 		normalized.parameterStatus == ParameterStatusComplete
 	var coverage *coverageState
@@ -107,8 +113,15 @@ func (session *Session) Reserve(request Request) (Decision, Reservation, error) 
 	}
 	if session.options.DedupStrategy == DedupStrategyRequireParameters &&
 		normalized.parameterStatus == ParameterStatusComplete && len(normalized.parameters) == 0 {
-		decision.Action, decision.Reason = ActionDrop, ReasonNoParameters
-		return decision, Reservation{}, nil
+		if _, exists := session.emptyParams[normalized.endpointKey]; exists {
+			session.emptyParams[normalized.endpointKey] = now
+			decision.Action, decision.Reason = ActionDrop, ReasonNoParameters
+			return decision, Reservation{}, nil
+		}
+		if _, exists := session.pendingEmpty[normalized.endpointKey]; exists {
+			decision.Action, decision.Reason = ActionRetry, ReasonInFlight
+			return decision, Reservation{}, nil
+		}
 	}
 
 	if session.options.DedupStrategy == DedupStrategyParameterShapeCoverage && trackCoverage {
@@ -145,12 +158,16 @@ func (session *Session) Reserve(request Request) (Decision, Reservation, error) 
 		hashKey:       normalized.hashKey,
 		endpointKey:   normalized.endpointKey,
 		trackHash:     trackHash,
+		trackEmpty:    trackEmpty,
 		trackCoverage: trackCoverage,
 		expiresAt:     now.Add(session.options.ReservationTTL),
 	}
 	session.pending[id] = state
 	if trackHash {
 		session.pendingExact[normalized.hashKey] = id
+	}
+	if trackEmpty {
+		session.pendingEmpty[normalized.endpointKey] = id
 	}
 	session.stateEntries++
 	if trackCoverage {
@@ -193,6 +210,8 @@ func (session *Session) Commit(reservation Reservation) error {
 	session.finishPendingLocked(reservation.id, state)
 	if state.trackHash {
 		session.exact[state.hashKey] = now
+	} else if state.trackEmpty {
+		session.emptyParams[state.endpointKey] = now
 	} else {
 		session.stateEntries--
 	}
@@ -243,6 +262,8 @@ func (session *Session) Close() {
 	session.stateEntries = 0
 	clear(session.exact)
 	clear(session.pendingExact)
+	clear(session.emptyParams)
+	clear(session.pendingEmpty)
 	clear(session.pending)
 	clear(session.coverage)
 }
@@ -305,6 +326,9 @@ func (session *Session) finishPendingLocked(id uint64, state *reservationState) 
 	if state.trackHash {
 		delete(session.pendingExact, state.hashKey)
 	}
+	if state.trackEmpty {
+		delete(session.pendingEmpty, state.endpointKey)
+	}
 }
 
 func (session *Session) releaseLocked(id uint64, state *reservationState) {
@@ -343,6 +367,12 @@ func (session *Session) expireLocked(now time.Time) {
 	for fingerprint, lastSeen := range session.exact {
 		if now.Sub(lastSeen) > session.options.EntryTTL {
 			delete(session.exact, fingerprint)
+			session.stateEntries--
+		}
+	}
+	for endpoint, lastSeen := range session.emptyParams {
+		if now.Sub(lastSeen) > session.options.EntryTTL {
+			delete(session.emptyParams, endpoint)
 			session.stateEntries--
 		}
 	}

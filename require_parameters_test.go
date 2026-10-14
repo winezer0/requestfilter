@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestRequireParametersDropsCompletelyParsedRequestsWithoutParameters(t *testing.T) {
+func TestRequireParametersAllowsFirstAndDropsRepeatedCompleteNoParameterRequests(t *testing.T) {
 	tests := []struct {
 		name    string
 		request Request
@@ -28,15 +28,68 @@ func TestRequireParametersDropsCompletelyParsedRequestsWithoutParameters(t *test
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(result.Accepted) != 0 || len(result.Decisions) != 2 {
-				t.Fatalf("FilterBatch() = (%#v, %v), want no accepted requests", result, err)
+			if len(result.Accepted) != 1 || len(result.Decisions) != 2 {
+				t.Fatalf("FilterBatch() = (%#v, %v), want first request accepted", result, err)
 			}
-			for _, decision := range result.Decisions {
-				if decision.Action != ActionDrop || decision.Reason != ReasonNoParameters || decision.ParameterStatus != ParameterStatusComplete {
-					t.Fatalf("decision = %#v, want complete no-parameters drop", decision)
-				}
+			if decision := result.Decisions[0]; decision.Action != ActionAllow || decision.ParameterStatus != ParameterStatusComplete {
+				t.Fatalf("first decision = %#v, want complete no-parameters allow", decision)
+			}
+			if decision := result.Decisions[1]; decision.Action != ActionDrop || decision.Reason != ReasonNoParameters || decision.ParameterStatus != ParameterStatusComplete {
+				t.Fatalf("second decision = %#v, want repeated complete no-parameters drop", decision)
 			}
 		})
+	}
+}
+
+func TestRequireParametersGroupsEmptyRequestsByAuthenticationAndEndpoint(t *testing.T) {
+	options := Options{DedupStrategy: DedupStrategyRequireParameters}
+	request := Request{Method: "GET", URL: "https://example.test/", BodyCaptured: true}
+	requests := []Request{
+		request,
+		request,
+		{Method: "GET", URL: "https://example.test/other", BodyCaptured: true},
+		{Method: "GET", URL: "https://example.test/", AuthenticationGroupID: "account-b", BodyCaptured: true},
+	}
+	result, err := FilterBatch(requests, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Accepted) != 3 {
+		t.Fatalf("len(Accepted) = %d, want 3", len(result.Accepted))
+	}
+	if result.Decisions[1].Action != ActionDrop || result.Decisions[2].Action != ActionAllow || result.Decisions[3].Action != ActionAllow {
+		t.Fatalf("decisions = %#v, want only repeated same-group endpoint dropped", result.Decisions)
+	}
+}
+
+func TestRequireParametersPendingEmptyRequestCanBeRetried(t *testing.T) {
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyRequireParameters})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	request := Request{Method: "GET", URL: "https://example.test/", BodyCaptured: true}
+	decision, reservation, err := session.Reserve(request)
+	if err != nil || decision.Action != ActionAllow {
+		t.Fatalf("Reserve(first) = (%#v, %v), want allow", decision, err)
+	}
+	decision, _, err = session.Reserve(request)
+	if err != nil || decision.Action != ActionRetry || decision.Reason != ReasonInFlight {
+		t.Fatalf("Reserve(in-flight duplicate) = (%#v, %v), want retry", decision, err)
+	}
+	if err := session.Release(reservation); err != nil {
+		t.Fatal(err)
+	}
+	decision, reservation, err = session.Reserve(request)
+	if err != nil || decision.Action != ActionAllow {
+		t.Fatalf("Reserve(after release) = (%#v, %v), want allow", decision, err)
+	}
+	if err := session.Commit(reservation); err != nil {
+		t.Fatal(err)
+	}
+	decision, _, err = session.Reserve(request)
+	if err != nil || decision.Action != ActionDrop || decision.Reason != ReasonNoParameters {
+		t.Fatalf("Reserve(after commit) = (%#v, %v), want no-parameters duplicate drop", decision, err)
 	}
 }
 

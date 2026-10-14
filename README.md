@@ -195,7 +195,7 @@ func handle(w http.ResponseWriter, r *http.Request, filter *requestfilter.Sessio
 
 `DedupStrategySelectedFieldsHash` 使用上述默认字段和附加请求头做精确摘要判重。摘要相同的请求只放行一次。
 
-`DedupStrategyRequireParameters`（PARAM）仅过滤完整解析后确认无参数的请求；带参数请求放行。解析不完整时直接放行，不执行 HASH 回退。
+`DedupStrategyRequireParameters`（PARAM）对完整解析且无参数的请求按认证组、方法、路径和媒体类型分组：每组首次请求放行，后续重复请求过滤。带参数请求放行且不记录状态。解析不完整时直接放行，不执行 HASH 回退。
 
 `DedupStrategyParameterShapeCoverage`（SMART）按方法、源站、路径、内容类型、认证分组及参数位置/名称集合判重，忽略参数值。比如 `/xxx?a=1` 与 `/xxx?a=20` 形状相同；空参数集合也视为一种形状。同一形状只有首次成功提交的请求放行。解析不完整时直接放行，不执行 HASH 回退。
 
@@ -204,7 +204,7 @@ func handle(w http.ResponseWriter, r *http.Request, filter *requestfilter.Sessio
 | 参考模式 | 本包对应项 | 行为说明 |
 | --- | --- | --- |
 | HASH | `DedupStrategySelectedFieldsHash` | 默认字段加调用方指定的请求头字段。 |
-| PARAM | `DedupStrategyRequireParameters` | 完整解析后必须存在参数；解析不完整时放行。 |
+| PARAM | `DedupStrategyRequireParameters` | 完整解析且无参数时，每个认证组/方法/路径/媒体类型组合首次放行，重复请求过滤；带参数和解析不完整的请求放行。 |
 | SMART | `DedupStrategyParameterShapeCoverage` | 按参数位置和名称覆盖判重；解析器与端点分组细节可能不同。 |
 | AUTH | `AuthenticationGroupID` | 调用方提供非秘密认证组标识，作为所选策略的独立分组条件。 |
 JSON 对象递归展开为 JSON Pointer 路径（例如 `/user/id`、`/items/0/id`）；数组索引纳入名称。XML 记录叶子元素及属性路径，例如 `/user/id`、`/user/@role`；同级同名重复元素加从 0 开始的索引（如 `/user/item/0`），命名空间以 `{URI}name` 纳入路径。multipart 只记录普通字段名和文件字段名，不保留字段值、文件名或文件内容；`MaxMultipartParts` 单独限制部件数。
@@ -217,7 +217,7 @@ JSON 对象递归展开为 JSON Pointer 路径（例如 `/user/id`、`/items/0/i
 
 ## 状态限制与错误
 
-`Options` 的零值会采用以下上限：会话状态 10000 项、URL 16 KiB、请求体 8 MiB、每个请求参数 4096 项、JSON/XML 深度各 64 层、XML 元素与属性名总数 10000 个、multipart 部件 4096 个、预留有效期 30 秒。解析器自己的深度、节点、参数或部件上限会将状态标为 `partial`；PARAM 和 SMART 在不完整解析时放行。URL 和请求体硬上限仍会返回 `ErrInvalidRequest`。`MaxEntries` 统计已记录的 HASH 项、SMART 覆盖端点/参数和未完成的预留引用；容量不足时不会清空已有状态。
+`Options` 的零值会采用以下上限：会话状态 10000 项、URL 16 KiB、请求体 8 MiB、每个请求参数 4096 项、JSON/XML 深度各 64 层、XML 元素与属性名总数 10000 个、multipart 部件 4096 个、预留有效期 30 秒。解析器自己的深度、节点、参数或部件上限会将状态标为 `partial`；PARAM 和 SMART 在不完整解析时放行。URL 和请求体硬上限仍会返回 `ErrInvalidRequest`。`MaxEntries` 统计已记录的 HASH 项、PARAM 无参端点、SMART 覆盖端点/参数和未完成的预留引用；容量不足时不会清空已有状态。
 
 `EntryTTL` 控制已提交记录的空闲过期时间，零值表示不过期。预留过期和记录 TTL 都在下一次会话操作时惰性清理，不启动后台 goroutine。调用方应在生命周期结束时调用 `Close`。会话只保存在进程内，进程重启后状态不会保留。
 

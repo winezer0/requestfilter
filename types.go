@@ -37,7 +37,7 @@ const (
 	DedupStrategyNone DedupStrategy = iota
 	// DedupStrategySelectedFieldsHash hashes default request fields and configured additional headers.
 	DedupStrategySelectedFieldsHash
-	// DedupStrategyRequireParameters drops completely parsed requests without parameters.
+	// DedupStrategyRequireParameters allows the first request per empty-parameter endpoint group.
 	DedupStrategyRequireParameters
 	// DedupStrategyParameterShapeCoverage drops requests whose parameter locations and names are covered.
 	DedupStrategyParameterShapeCoverage
