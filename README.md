@@ -171,6 +171,8 @@ func handle(w http.ResponseWriter, r *http.Request, filter *requestfilter.Sessio
 
 如果请求体没有完整捕获，不要把缺失或截断的内容送入 `Reserve` 并期待精确去重：过滤器无法凭空区分正文不同、但可见部分相同的请求。示例在读体失败或超限时不调用过滤器。`BodyCaptured: false` 表示正文未知，不应被当作“已确认的空请求体”。
 
+过滤器接收的是已解析的 `Request` 字段，不解析原始 HTTP 字节流。通过 `net/http` 接入时，chunked framing 通常已由 HTTP server 解码；HTTP/2 伪头也应映射到 `Method`、URL 和普通头字段。`CONNECT host:port` 这样的 authority-form 和 `OPTIONS *` 这样的 asterisk-form 不能直接作为 `URL` 传入；集成方需先决定它们对应的目标 URL/资源身份，或在进入本包前旁路处理。本包不负责验证原始报文行、传输分块或 HTTP/2 framing。
+
 动作处理要点：
 
 - `ActionAllow`：下游确认接收后调用 `Commit`；下游明确拒绝时调用 `Release`，保留重试机会。
@@ -207,13 +209,13 @@ func handle(w http.ResponseWriter, r *http.Request, filter *requestfilter.Sessio
 | HASH | `DedupStrategySelectedFieldsHash` | 默认字段加调用方指定的请求头字段做精确判重。 | 是 |
 | PARAM | `DedupStrategyRequireParameters` | 完整解析且无参数时，每个认证组/方法/路径/媒体类型组合首次放行，重复请求过滤；带参数和解析不完整的请求放行。 | 是 |
 | SMART | `DedupStrategyParameterShapeCoverage` | 按参数位置和名称覆盖判重；解析器与端点分组细节可能不同。 | 是 |
-JSON 对象递归展开为 JSON Pointer 路径（例如 `/user/id`、`/items/0/id`）；数组索引纳入名称。XML 记录叶子元素及属性路径，例如 `/user/id`、`/user/@role`；同级同名重复元素加从 0 开始的索引（如 `/user/item/0`），命名空间以 `{URI}name` 纳入路径。multipart 只记录普通字段名和文件字段名，不保留字段值、文件名或文件内容；`MaxMultipartParts` 单独限制部件数。
+Query 和 URL-encoded form 名称按标准表单规则解码；重复出现的同位置同名参数折叠成一个参数名，空名称会保留。非法百分号转义使解析状态变为 `partial`，不使用该来源的部分结果。JSON 对象递归展开为 JSON Pointer 路径（例如 `/user/id`、`/items/0/id`）；数组索引纳入名称，顶层标量和空对象/数组用 `$` 表示。JSON 解码为对象映射，因此同一对象内重复键折叠为一个路径。XML 记录叶子元素及属性路径，例如 `/user/id`、`/user/@role`；同级同名重复元素加从 0 开始的索引（如 `/user/item/0`），命名空间以 `{URI}name` 纳入路径。multipart 只记录普通字段名和文件字段名，不保留字段值、文件名或文件内容；重复的同位置同名部件折叠为一个名称，`filename*` 也识别为文件字段；`MaxMultipartParts` 单独限制部件数。Content-Type 参数和 multipart boundary 不参与 SMART 媒体类型分组。缺少 multipart 结束 boundary 的空正文属于不完整报文；只有最终 boundary 的空 multipart 是完整的空参数形状。
 
 未知媒体类型、未捕获的请求体或解析不完整时，参数状态为 `partial`。PARAM 和 SMART 在此情况下直接放行。`BodyCaptured: false` 对所有 HTTP 方法都表示请求体未捕获；已确认无请求体时应设置为 `true`。XML 使用 Go 标准库解析，非 UTF-8 编码等无法解析的 XML 会走该回退行为。请求体总大小受 `MaxBodyBytes` 限制。
 
 ## 认证上下文
 
-HASH、PARAM 和 SMART 会自动使用 Cookie 头、Authorization 头，以及名称包含 `token`、`auth`、`sessid`、`session` 的请求头分组；匹配头名和 Authorization 方案名时不区分大小写。`Proxy-Authorization` 始终排除，避免代理凭据误分目标站点。Cookie 项按名称和值排序后参与分组，因此 Cookie 对顺序变化不改变身份。`AdditionalAuthenticationHeaderNames` 可添加如 `X-API-Key` 等自定义头。调用方也可通过 `AuthenticationGroupID` 添加稳定的非秘密分组 ID；该 ID 会与自动识别的头组合。认证值只用于会话内 HMAC 分组，不会存入去重状态或写入判定结果。
+HASH、PARAM 和 SMART 会自动使用 Cookie 头、Authorization 头，以及名称包含 `token`、`auth`、`sessid`、`session` 的请求头分组；匹配头名和 Authorization 方案名时不区分大小写。`Proxy-Authorization` 始终排除，避免代理凭据误分目标站点。Cookie 项会跨重复 Cookie 头合并，并按名称和值排序后参与分组，因此 Cookie 行和项的顺序变化不改变身份。其他认证头的多个值按输入顺序参与身份。`AdditionalAuthenticationHeaderNames` 可添加如 `X-API-Key` 等自定义头。调用方也可通过 `AuthenticationGroupID` 添加稳定的非秘密分组 ID；该 ID 会与自动识别的头组合。认证值只用于会话内 HMAC 分组，不会存入去重状态或写入判定结果。
 
 ## 状态限制与错误
 

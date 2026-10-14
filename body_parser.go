@@ -246,6 +246,9 @@ func xmlPathSegment(name xml.Name) string {
 }
 
 func addMultipartParameters(body []byte, contentType string, maximumParts int, add func(ParameterLocation, string) error) error {
+	if len(body) == 0 {
+		return io.ErrUnexpectedEOF
+	}
 	_, parameters, err := mime.ParseMediaType(strings.Split(contentType, "\x00")[0])
 	if err != nil || parameters["boundary"] == "" {
 		return io.ErrUnexpectedEOF

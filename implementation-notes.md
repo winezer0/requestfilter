@@ -85,6 +85,17 @@ The reference README describes the same broad concepts (exact HASH, empty-parame
 - PARAM's existing regression explicitly documents the intentional first-empty-request difference: the package allows the first committed complete empty request and drops later duplicates; the reference returns early and drops it immediately.
 - These are source-derived comparisons only. No Burp process or reference parser was available, so parser outputs and conditional outcomes are not presented as observed runtime data.
 
+## 2026-10-14 — Request edge-case regression coverage
+
+- Added parser and SMART regressions for repeated, blank, flag-style, percent-encoded, case-distinct, and UTF-8 parameter names; malformed query/form escapes return `partial` without trusting partial names.
+- Added JSON cases for top-level scalars, arrays with object/scalar/empty values, duplicate object keys, case-sensitive names, UTF-8 names, and vendor `+json` media types. Object-key duplicates collapse to one path; array positions remain part of the shape.
+- Added Content-Type parameter and multipart-boundary grouping cases, repeated multipart fields/files, extended `filename*`, missing/unknown media types, and non-UTF-8-declared XML fallback.
+- Added exact-boundary parser tests for body bytes, parameter count, JSON depth, XML depth/nodes, and multipart part count, alongside one-over cases already present. Added repeated Cookie-line normalization, duplicate cookie names, Basic credentials with padding, and ordered multi-value Authorization/token-header identity coverage.
+- Tightened multipart parsing so a captured empty body without a final delimiter is partial, while a valid closing-boundary-only body is a complete empty shape. Added regressions to distinguish the two.
+- Documented that the API receives parsed `Request` fields, not raw wire messages. `net/http` framing, HTTP/2 pseudo-header mapping, authority-form CONNECT targets, and asterisk-form OPTIONS targets must be handled by the integration layer; raw CONNECT/OPTIONS targets are rejected as invalid URLs.
+- This coverage verifies this package's defined behavior. It does not turn source-derived Burp assumptions into runtime reference results.
+- Verification passed: `go build ./...`, the full test suite (180 tests), `go test -race ./...`, `go vet ./...`, and `git diff --check`. Statement coverage is 92.0%. The temporary coverage profile was removed after measurement.
+
 ## 2026-10-14 — Built-in authentication identity sources
 
 - Every active dedup strategy now partitions by a session-keyed HMAC identity derived from Cookie, Authorization, and header names containing `token`, `auth`, `sessid`, or `session`. Cookie pairs are sorted so header pair order does not split a group.

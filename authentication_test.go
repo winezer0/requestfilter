@@ -80,8 +80,8 @@ func TestCookieAuthenticationIdentityIgnoresPairOrder(t *testing.T) {
 
 func TestAuthorizationAuthenticationIdentityIgnoresSchemeCase(t *testing.T) {
 	requests := []Request{
-		{URL: "https://example.test/", BodyCaptured: true, Header: http.Header{"Authorization": {"Bearer token-value"}}},
-		{URL: "https://example.test/", BodyCaptured: true, Header: http.Header{"authorization": {"bearer token-value"}}},
+		{URL: "https://example.test/", BodyCaptured: true, Header: http.Header{"Authorization": {"Basic dXNlcjpwYXNz=="}}},
+		{URL: "https://example.test/", BodyCaptured: true, Header: http.Header{"authorization": {"basic   dXNlcjpwYXNz=="}}},
 	}
 	result, err := FilterBatch(requests, Options{DedupStrategy: DedupStrategySelectedFieldsHash})
 	if err != nil {
