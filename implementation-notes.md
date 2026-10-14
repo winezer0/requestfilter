@@ -112,6 +112,14 @@ The reference README describes the same broad concepts (exact HASH, empty-parame
 - `AuthenticationGroupID` is combined as an additional caller-defined group dimension. The HMAC output and original authentication values are not exposed in decisions or persisted as raw session state.
 - Verification passed: `go build ./...`, `go test ./... -cover`, `go test -race ./...`, and `go vet ./...`. All 103 tests passed; statement coverage is 91.3% (617/676). Go caches used `go-build` and `.gomod-cache`.
 
+## 2026-10-14 — Package-level production checks
+
+- Kept validation scoped to this standalone library: no deployment checklist or CI workflow was added.
+- Added a real `net/http` chunked-request regression proving that the adapter captures the decoded body and leaves the identical bytes available to the caller afterward.
+- Added a concurrent unique-request capacity regression: with 64 configured entries and 128 requests, exactly 64 are allowed and the remainder receive `ActionReject` with `ReasonCapacity`.
+- Verified on the declared minimum Go 1.24.0 and Go 1.26.4: `go test ./...` passed (215 tests across two packages). Also passed `go test ./... -cover` (root 92.6%, adapter 96.4%), `go test -race ./...`, `go vet ./...`, and 5-second fuzz runs for `FuzzExtractParameters` and `FuzzNormalizeURL`.
+- Local command environment used `GOCACHE=go-build` and `GOMODCACHE=.gomod-cache`. The library remains an in-process, per-session filter; callers configure session lifetime and handle capacity rejection and retry decisions.
+
 ## 2026-10-14 — Source-derived reference corpus and authentication matrix
 
 - Added `testdata/reference-corpus.json`, pinned to reference commit `69e8da271e5e46862edb0b5b522ae3fa554df0c4`. Eight requests cover query, URL-encoded form, nested JSON, XML, multipart, cross-location name collisions, malformed JSON, and unknown binary bodies.

@@ -113,6 +113,60 @@ func TestToFilterRequestHandlesNilBodyAndClonesHeaders(t *testing.T) {
 	}
 }
 
+func TestToFilterRequestPreservesChunkedHTTPBody(t *testing.T) {
+	const wantBody = "chunk-one-chunk-two"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if len(request.TransferEncoding) == 0 || request.TransferEncoding[0] != "chunked" {
+			t.Errorf("TransferEncoding = %v, want chunked", request.TransferEncoding)
+		}
+		mapped, err := toFilterRequest(request, "")
+		if err != nil {
+			t.Errorf("toFilterRequest() error = %v", err)
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if string(mapped.Body) != wantBody {
+			t.Errorf("captured body = %q, want %q", mapped.Body, wantBody)
+		}
+		remaining, err := io.ReadAll(request.Body)
+		if err != nil || string(remaining) != wantBody {
+			t.Errorf("forwarded body = (%q, %v), want %q", remaining, err, wantBody)
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	reader, writer := io.Pipe()
+	request, err := http.NewRequest(http.MethodPost, server.URL+"/upload", reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeDone := make(chan error, 1)
+	go func() {
+		_, writeErr := io.WriteString(writer, "chunk-one-")
+		if writeErr == nil {
+			_, writeErr = io.WriteString(writer, "chunk-two")
+		}
+		closeErr := writer.Close()
+		if writeErr != nil {
+			writeDone <- writeErr
+			return
+		}
+		writeDone <- closeErr
+	}()
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if err := <-writeDone; err != nil {
+		t.Fatalf("write chunked request body: %v", err)
+	}
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("response status = %d, want %d", response.StatusCode, http.StatusNoContent)
+	}
+}
+
 func assertRemainingBody(t *testing.T, request *http.Request, want string) {
 	t.Helper()
 	got, err := io.ReadAll(request.Body)

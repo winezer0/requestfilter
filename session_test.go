@@ -2,6 +2,7 @@ package requestfilter
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -183,6 +184,58 @@ func TestConcurrentReserveIsAtomic(t *testing.T) {
 	}
 	if err := session.Commit(reservation); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestConcurrentUniqueRequestsRespectCapacity(t *testing.T) {
+	const capacity = 64
+	const requestCount = 128
+	session, err := NewSession(Options{
+		MaxEntries: capacity, DedupStrategy: DedupStrategySelectedFieldsHash,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	var group sync.WaitGroup
+	var mu sync.Mutex
+	allowed := 0
+	rejected := 0
+	group.Add(requestCount)
+	for index := range requestCount {
+		go func() {
+			defer group.Done()
+			request := Request{URL: fmt.Sprintf("https://example.test/item/%d", index)}
+			decision, reservation, reserveErr := session.Reserve(request)
+			if reserveErr != nil {
+				t.Errorf("Reserve() error = %v", reserveErr)
+				return
+			}
+			if decision.Action == ActionAllow {
+				if commitErr := session.Commit(reservation); commitErr != nil {
+					t.Errorf("Commit() error = %v", commitErr)
+					return
+				}
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			switch decision.Action {
+			case ActionAllow:
+				allowed++
+			case ActionReject:
+				if decision.Reason != ReasonCapacity {
+					t.Errorf("Reserve() reject reason = %q, want capacity", decision.Reason)
+				}
+				rejected++
+			default:
+				t.Errorf("Reserve() action = %q, want allow or reject", decision.Action)
+			}
+		}()
+	}
+	group.Wait()
+	if allowed != capacity || rejected != requestCount-capacity {
+		t.Fatalf("allow/reject counts = %d/%d, want %d/%d", allowed, rejected, capacity, requestCount-capacity)
 	}
 }
 

@@ -169,7 +169,7 @@ func handle(w http.ResponseWriter, r *http.Request, filter *requestfilter.Sessio
 
 示例中的 imports 需要包含 `bytes`、`errors`、`io`、`net/http` 和 `github.com/winezer0/requestfilter`；`sendToScanner` 由调用方实现。生产代码应让 `maxCapturedBodyBytes` 与 `Options.MaxBodyBytes` 一致。通过 TLS 反向代理接入时，应从可信代理配置确定外部 scheme，不要直接信任任意请求的 `X-Forwarded-Proto`。`AuthenticationGroupID` 应来自认证配置或主体的稳定非秘密 ID，不要传 Cookie 或 Token。
 
-对应的适配实现及成功读体、读体错误、超限恢复、HTTP/HTTPS URL 映射测试位于 `internal/nethttpadapterexample`，由 `go test ./...` 一并编译和验证。
+对应的适配实现及成功读体、读体错误、超限恢复、HTTP/HTTPS URL 映射和 chunked 正文保真测试位于 `internal/nethttpadapterexample`，由 `go test ./...` 一并编译和验证。
 
 如果请求体没有完整捕获，不要把缺失或截断的内容送入 `Reserve` 并期待精确去重：过滤器无法凭空区分正文不同、但可见部分相同的请求。示例在读体失败或超限时不调用过滤器。`BodyCaptured: false` 表示正文未知，不应被当作“已确认的空请求体”。
 
