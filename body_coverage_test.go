@@ -34,7 +34,7 @@ func TestStructuredBodyFormatsParticipateInCoverage(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+			session, err := NewSession(Options{DedupStrategy: DedupStrategyCoverageParameters})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -68,10 +68,10 @@ func TestStructuredBodyFormatsParticipateInCoverage(t *testing.T) {
 	}
 }
 
-func TestUncapturedBodiesNeverUseParameterCoverage(t *testing.T) {
+func TestDedupStrategyCoverageParametersBypassesUncapturedBodies(t *testing.T) {
 	for _, method := range []string{"GET", "HEAD"} {
 		t.Run(method, func(t *testing.T) {
-			session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+			session, err := NewSession(Options{DedupStrategy: DedupStrategyCoverageParameters})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -97,8 +97,8 @@ func TestUncapturedBodiesNeverUseParameterCoverage(t *testing.T) {
 	}
 }
 
-func TestSmartTreatsEmptyParameterSetAsAShape(t *testing.T) {
-	session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+func TestDedupStrategyCoverageParametersTreatsEmptyParameterSetAsAShape(t *testing.T) {
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyCoverageParameters})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,8 +117,8 @@ func TestSmartTreatsEmptyParameterSetAsAShape(t *testing.T) {
 	}
 }
 
-func TestAuthenticationGroupsPartitionSmartCoverage(t *testing.T) {
-	session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+func TestAuthenticationGroupsPartitionDedupStrategyCoverageParameters(t *testing.T) {
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyCoverageParameters})
 	if err != nil {
 		t.Fatal(err)
 	}

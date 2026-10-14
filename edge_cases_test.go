@@ -170,7 +170,7 @@ func TestParameterExtractionEdgeCases(t *testing.T) {
 			wantStatus: ParameterStatusPartial,
 		},
 	}
-	options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+	options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyCoverageParameters})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestParameterExtractionEdgeCases(t *testing.T) {
 	}
 }
 
-func TestSmartCoverageContentTypeAndMultipartBoundaryVariants(t *testing.T) {
+func TestDedupStrategyCoverageParametersContentTypeAndMultipartBoundaryVariants(t *testing.T) {
 	tests := []struct {
 		name   string
 		first  Request
@@ -234,7 +234,7 @@ func TestSmartCoverageContentTypeAndMultipartBoundaryVariants(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+			session, err := NewSession(Options{DedupStrategy: DedupStrategyCoverageParameters})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -259,7 +259,7 @@ func TestMultipartRepeatedFieldsFilesAndExtendedFilename(t *testing.T) {
 		"--multi\r\nContent-Disposition: form-data; name=\"field\"\r\n\r\ntwo\r\n" +
 		"--multi\r\nContent-Disposition: form-data; name=\"upload\"; filename*=utf-8''first.txt\r\n\r\nfirst\r\n" +
 		"--multi\r\nContent-Disposition: form-data; name=\"upload\"; filename=\"second.txt\"\r\n\r\nsecond\r\n--multi--\r\n"
-	options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+	options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyCoverageParameters})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,8 +283,8 @@ func TestMultipartRepeatedFieldsFilesAndExtendedFilename(t *testing.T) {
 	}
 }
 
-func TestSmartCoverageArrayPositionAndDuplicateKeySemantics(t *testing.T) {
-	session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+func TestDedupStrategyCoverageParametersArrayPositionAndDuplicateKeySemantics(t *testing.T) {
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyCoverageParameters})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +322,7 @@ func TestSmartCoverageArrayPositionAndDuplicateKeySemantics(t *testing.T) {
 
 func TestBodyCaptureAndParserLimitBoundaries(t *testing.T) {
 	t.Run("body limit accepts exact size and rejects one byte over", func(t *testing.T) {
-		session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage, MaxBodyBytes: 2})
+		session, err := NewSession(Options{DedupStrategy: DedupStrategyCoverageParameters, MaxBodyBytes: 2})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -345,7 +345,7 @@ func TestBodyCaptureAndParserLimitBoundaries(t *testing.T) {
 	})
 
 	t.Run("parameter limit accepts exact count and marks one over partial", func(t *testing.T) {
-		options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyParameterShapeCoverage, MaxParameters: 2})
+		options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyCoverageParameters, MaxParameters: 2})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -377,7 +377,7 @@ func TestBodyCaptureAndParserLimitBoundaries(t *testing.T) {
 			{name: "over", body: `{"a":{"b":1}}`, want: ParameterStatusPartial},
 		} {
 			t.Run(test.name, func(t *testing.T) {
-				options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyParameterShapeCoverage, MaxJSONDepth: 1})
+				options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyCoverageParameters, MaxJSONDepth: 1})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -397,7 +397,7 @@ func TestBodyCaptureAndParserLimitBoundaries(t *testing.T) {
 	})
 
 	t.Run("multipart part limit accepts exact count", func(t *testing.T) {
-		options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyParameterShapeCoverage, MaxMultipartParts: 1})
+		options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyCoverageParameters, MaxMultipartParts: 1})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -425,7 +425,7 @@ func TestBodyCaptureAndParserLimitBoundaries(t *testing.T) {
 			{name: "nodes include attributes", options: Options{MaxXMLNodes: 2}, body: `<root id="1"/>`},
 		} {
 			t.Run(test.name, func(t *testing.T) {
-				options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyParameterShapeCoverage,
+				options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyCoverageParameters,
 					MaxXMLDepth: test.options.MaxXMLDepth, MaxXMLNodes: test.options.MaxXMLNodes})
 				if err != nil {
 					t.Fatal(err)
@@ -537,8 +537,8 @@ func TestEmptyMalformedMultipartBypassesParameterStrategies(t *testing.T) {
 		name     string
 		strategy DedupStrategy
 	}{
-		{name: "PARAM", strategy: DedupStrategyRequireParameters},
-		{name: "SMART", strategy: DedupStrategyParameterShapeCoverage},
+		{name: "DedupStrategyRequireParameters", strategy: DedupStrategyRequireParameters},
+		{name: "DedupStrategyCoverageParameters", strategy: DedupStrategyCoverageParameters},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			session, err := NewSession(Options{DedupStrategy: test.strategy})

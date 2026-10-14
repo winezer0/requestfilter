@@ -35,7 +35,7 @@ func FuzzExtractParameters(f *testing.F) {
 			return
 		}
 		options, err := normalizeOptions(Options{
-			DedupStrategy: DedupStrategyParameterShapeCoverage,
+			DedupStrategy: DedupStrategyCoverageParameters,
 			MaxURLBytes:   maxURLBytes, MaxBodyBytes: maxBodyBytes, MaxParameters: 64,
 			MaxJSONDepth: 12, MaxXMLDepth: 12, MaxXMLNodes: 128, MaxMultipartParts: 64,
 		})

@@ -4,39 +4,39 @@
     "reference_commit": "69e8da271e5e46862edb0b5b522ae3fa554df0c4",
     "oracle": "source-derived; request parsing is delegated to Burp IExtensionHelpers and was not executable in the reference checkout",
     "evidence": [
-      "src/main/java/burp/HttpAndHttpsProxy.java: PARAM early-return and SMART request-key construction",
+      "src/main/java/burp/HttpAndHttpsProxy.java: empty-parameter handling and parameter-coverage key construction",
       "src/main/java/burp/Utils.java: IParametersToJsonStr and isUniqReqInfo",
       "src/main/java/burp/Utils.java: ExtractIParamsAuthParam",
-      "src/main/resources/psc.config.yml: AUTH_INFO_REGX"
+      "src/main/resources/psc.config.yml: authentication-header matching configuration"
     ],
     "rules": [
       {
-        "mode": "HASH",
-        "source_behavior": "When enabled, keys by raw request URL and appends an MD5 of the body byte-array string when the proxy captured a non-null POST body; optional auth data is appended when AUTH is enabled.",
-        "package_behavior": "Independent selected-field SHA-256 fingerprint over method, normalized URL, Content-Type, body-capture state, body bytes, and optional configured headers; authentication is a separate partition.",
-        "difference": "Fingerprint fields, encoding, and mode composition differ.",
-        "source": "HttpAndHttpsProxy.java: HASH key construction; Utils.java: calcReqInfoHash"
+        "area": "DedupStrategySelectedFieldsHash",
+        "source_behavior": "The reference source keys by raw request URL and appends an MD5 derived from the body byte-array string when it captured a non-null POST body; authentication data may also be appended.",
+        "package_behavior": "Uses an independent selected-field SHA-256 fingerprint over method, normalized URL, Content-Type, body-capture state, body bytes, and optional configured headers; authentication is a separate partition.",
+        "difference": "Fingerprint fields and encoding differ; filtering strategies are independent in this package.",
+        "source": "HttpAndHttpsProxy.java: request-key construction; Utils.java: request fingerprint calculation"
       },
       {
-        "mode": "PARAM",
-        "source_behavior": "When enabled, immediately drops every request whose Burp parameter list is empty, including the first; parameterized requests continue to other enabled modes.",
-        "package_behavior": "Independent strategy: parameterized or incomplete requests pass; a complete empty request is allowed once per group and endpoint after commit, then repeats drop.",
-        "difference": "First complete empty request passes in this package; strategies do not compose.",
-        "source": "HttpAndHttpsProxy.java: REQ_PARAM early return before SMART/HASH"
+        "area": "DedupStrategyRequireParameters",
+        "source_behavior": "The reference source immediately drops every request whose parsed parameter list is empty, including the first; parameterized requests continue to subsequent filtering logic.",
+        "package_behavior": "Parameterized or incomplete requests pass; a complete empty request is allowed once per group and endpoint after commit, then repeats drop.",
+        "difference": "The first complete empty request passes in this package; strategies are independent and do not compose.",
+        "source": "HttpAndHttpsProxy.java: early return for an empty parsed parameter list"
       },
       {
-        "mode": "SMART",
-        "source_behavior": "Keys by URL without query, Burp content type, and optional auth map; parameter values become a presence marker, keys are flattened by name, and newly seen names are merged cumulatively.",
-        "package_behavior": "Independent coverage keyed by normalized endpoint, auth group, method, scheme/host/port/path, and media type; coverage identity retains parameter location and name, ignores values, and tracks the empty shape.",
+        "area": "DedupStrategyCoverageParameters",
+        "source_behavior": "The reference source keys by URL without query, parsed content type, and optional authentication data; parameter values become a presence marker, names are flattened across locations, and newly seen names are merged cumulatively.",
+        "package_behavior": "Independent coverage keyed by normalized endpoint, authentication group, method, scheme/host/port/path, and media type; coverage identity retains parameter location and name, ignores values, and tracks the empty shape.",
         "difference": "Reference key omits method and flattened names lose location identity; package partitions by method and preserves locations.",
-        "source": "HttpAndHttpsProxy.java: SMART key construction; Utils.java: IParametersToJsonStr/isUniqReqInfo"
+        "source": "HttpAndHttpsProxy.java: parameter-coverage key construction; Utils.java: parameter-name serialization and duplicate detection"
       },
       {
-        "mode": "AUTH",
-        "source_behavior": "Optional auth extraction selects parameter and header names matching token|auth|sessid|session case-insensitively; Proxy-Authorization also matches the auth substring.",
+        "area": "AuthenticationGrouping",
+        "source_behavior": "Optional identity extraction selects parameter and header names matching token|auth|sessid|session case-insensitively; Proxy-Authorization also matches the auth substring.",
         "package_behavior": "Cookie, Authorization, common token/auth/session headers, custom names, and caller AuthenticationGroupID create the group; Proxy-Authorization is excluded.",
         "difference": "Package handles whole Cookie/Authorization sources and deliberately excludes proxy credentials.",
-        "source": "Utils.java: ExtractIParamsAuthParam/isMatchKeywords; psc.config.yml: AUTH_INFO_REGX"
+        "source": "Utils.java: authentication parameter extraction and keyword matching; psc.config.yml: authentication-header matching configuration"
       }
     ]
   },
@@ -49,7 +49,7 @@
       "parameters":[{"location":"query","name":"id"}],
       "second_action":"drop",
       "reference_outcome":"conditional_duplicate",
-      "reference_policy":"SMART groups by URL without query and content type, then compares parameter names with values replaced by a presence marker, when Burp exposes the same parsed parameter name."
+      "reference_policy":"The reference source groups by URL without query and content type, then compares parameter names with values replaced by a presence marker, when Burp exposes the same parsed parameter name."
     },
     {
       "name": "url encoded form values do not change the shape",
@@ -59,7 +59,7 @@
       "parameters":[{"location":"form","name":"name"},{"location":"form","name":"tag"}],
       "second_action":"drop",
       "reference_outcome":"conditional_duplicate",
-      "reference_policy":"SMART replaces parsed parameter values with a presence marker; exact Burp extraction of this request body is not captured by this source-only corpus."
+      "reference_policy":"The reference source replaces parsed parameter values with a presence marker; exact Burp extraction of this request body is not captured by this source-only corpus."
     },
     {
       "name": "nested JSON values retain their path shape",
@@ -69,7 +69,7 @@
       "parameters":[{"location":"json_body","name":"/user/id"}],
       "second_action":"drop",
       "reference_outcome":"conditional_duplicate",
-      "reference_policy":"The reference has a special recursive JSON path conversion before SMART and ignores values; its exact path serialization differs from this package."
+      "reference_policy":"The reference has a special recursive JSON path conversion for parameter coverage and ignores values; its exact path serialization differs from this package."
     },
     {
       "name": "XML element and attribute names define the shape",
@@ -100,20 +100,20 @@
       "second_parameters":[{"location":"form","name":"id"},{"location":"query","name":"id"}],
       "second_action":"allow",
       "reference_outcome":"conditional_duplicate",
-      "reference_policy":"If Burp returns both IParameter entries, reference SMART flattens both into one JSON key by name and replaces both values with the same marker; this package intentionally includes location in shape identity."
+      "reference_policy":"If Burp returns both IParameter entries, the reference flattens both into one JSON key by name and replaces both values with the same marker; this package intentionally includes location in shape identity."
     },
     {
-      "name": "SMART reference key omits HTTP method",
+      "name": "Coverage strategy reference key omits HTTP method",
       "first": {"method":"GET","url":"https://example.test/items?id=1","body_captured":true},
       "second": {"method":"POST","url":"https://example.test/items?id=2","body_captured":true},
       "status":"complete",
       "parameters":[{"location":"query","name":"id"}],
       "second_action":"allow",
       "reference_outcome":"conditional_duplicate",
-      "reference_policy":"If both Burp requests expose the same parameter name and content type, reference SMART uses the same URL-without-query/content-type key and can drop the second request; this package intentionally partitions SMART coverage by HTTP method."
+      "reference_policy":"If both Burp requests expose the same parameter name and content type, the reference uses the same URL-without-query/content-type key and can drop the second request; this package intentionally partitions parameter coverage by HTTP method."
     },
     {
-      "name": "malformed JSON preserves query parsing and bypasses SMART state",
+      "name": "malformed JSON preserves query parsing and bypasses coverage state",
       "first": {"method":"POST","url":"https://example.test/items?id=1","headers":{"Content-Type":["application/json"]},"body":"{\"user\":","body_captured":true},
       "second": {"method":"POST","url":"https://example.test/items?id=2","headers":{"Content-Type":["application/json"]},"body":"{\"user\":","body_captured":true},
       "status":"partial",
@@ -123,7 +123,7 @@
       "reference_policy":"Malformed-body behavior depends on Burp parser output and is not specified by the reference source."
     },
     {
-      "name": "unknown binary format is incomplete and bypasses SMART state",
+      "name": "unknown binary format is incomplete and bypasses coverage state",
       "first": {"method":"POST","url":"https://example.test/items?id=1","headers":{"Content-Type":["application/octet-stream"]},"body":"\u0000\u0001","body_captured":true},
       "second": {"method":"POST","url":"https://example.test/items?id=2","headers":{"Content-Type":["application/octet-stream"]},"body":"\u0000\u0002","body_captured":true},
       "status":"partial",

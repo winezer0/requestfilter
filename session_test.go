@@ -76,7 +76,7 @@ func TestSessionIsolationAndClose(t *testing.T) {
 }
 
 func TestSessionCapacityAndRelease(t *testing.T) {
-	session, err := NewSession(Options{MaxEntries: 3, DedupStrategy: DedupStrategyParameterShapeCoverage})
+	session, err := NewSession(Options{MaxEntries: 3, DedupStrategy: DedupStrategyCoverageParameters})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestConcurrentUniqueRequestsRespectCapacity(t *testing.T) {
 }
 
 func TestCoveragePendingRequestCanRetryAfterRelease(t *testing.T) {
-	session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyCoverageParameters})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -13,7 +13,7 @@ func TestBuiltInAuthenticationSourcesPartitionEveryStrategy(t *testing.T) {
 		requests []Request
 	}{
 		{
-			name:     "HASH Authorization header",
+			name:     "DedupStrategySelectedFieldsHash with Authorization header",
 			strategy: DedupStrategySelectedFieldsHash,
 			requests: []Request{
 				{Method: "GET", URL: "https://example.test/", BodyCaptured: true, Header: http.Header{"Authorization": {"Bearer one"}}},
@@ -23,7 +23,7 @@ func TestBuiltInAuthenticationSourcesPartitionEveryStrategy(t *testing.T) {
 			},
 		},
 		{
-			name:     "PARAM Cookie header",
+			name:     "DedupStrategyRequireParameters with Cookie header",
 			strategy: DedupStrategyRequireParameters,
 			requests: []Request{
 				{Method: "GET", URL: "https://example.test/", BodyCaptured: true, Header: http.Header{"Cookie": {"visitor=one"}}},
@@ -33,8 +33,8 @@ func TestBuiltInAuthenticationSourcesPartitionEveryStrategy(t *testing.T) {
 			},
 		},
 		{
-			name:     "SMART token header",
-			strategy: DedupStrategyParameterShapeCoverage,
+			name:     "DedupStrategyCoverageParameters with token header",
+			strategy: DedupStrategyCoverageParameters,
 			requests: []Request{
 				{Method: "GET", URL: "https://example.test/?id=1", BodyCaptured: true, Header: http.Header{"X-Auth-Token": {"one"}}},
 				{Method: "GET", URL: "https://example.test/?id=2", BodyCaptured: true, Header: http.Header{"X-Auth-Token": {"one"}}},
@@ -171,7 +171,7 @@ func TestAuthenticationSourcesAcrossAllStrategies(t *testing.T) {
 	strategies := []DedupStrategy{
 		DedupStrategySelectedFieldsHash,
 		DedupStrategyRequireParameters,
-		DedupStrategyParameterShapeCoverage,
+		DedupStrategyCoverageParameters,
 	}
 	sources := []struct {
 		name         string
@@ -203,7 +203,7 @@ func TestAuthenticationSourcesAcrossAllStrategies(t *testing.T) {
 					url := "https://example.test/items"
 					if strategy == DedupStrategySelectedFieldsHash {
 						url += "?id=1"
-					} else if strategy == DedupStrategyParameterShapeCoverage {
+					} else if strategy == DedupStrategyCoverageParameters {
 						url += "?id=" + queryValue
 					}
 					req := Request{Method: "GET", URL: url, BodyCaptured: true, Header: make(http.Header)}
@@ -242,7 +242,7 @@ func TestCallerAuthenticationGroupCombinesWithDetectedHeaders(t *testing.T) {
 	strategies := []DedupStrategy{
 		DedupStrategySelectedFieldsHash,
 		DedupStrategyRequireParameters,
-		DedupStrategyParameterShapeCoverage,
+		DedupStrategyCoverageParameters,
 	}
 	for _, strategy := range strategies {
 		t.Run(string(strategy), func(t *testing.T) {
@@ -256,7 +256,7 @@ func TestCallerAuthenticationGroupCombinesWithDetectedHeaders(t *testing.T) {
 				url := "https://example.test/items"
 				if strategy == DedupStrategySelectedFieldsHash {
 					url += "?id=1"
-				} else if strategy == DedupStrategyParameterShapeCoverage {
+				} else if strategy == DedupStrategyCoverageParameters {
 					url += "?id=" + query
 				}
 				return Request{
@@ -289,7 +289,7 @@ func TestProxyAuthorizationAloneDoesNotPartitionAnyStrategy(t *testing.T) {
 	strategies := []DedupStrategy{
 		DedupStrategySelectedFieldsHash,
 		DedupStrategyRequireParameters,
-		DedupStrategyParameterShapeCoverage,
+		DedupStrategyCoverageParameters,
 	}
 	for _, strategy := range strategies {
 		t.Run(string(strategy), func(t *testing.T) {
@@ -303,7 +303,7 @@ func TestProxyAuthorizationAloneDoesNotPartitionAnyStrategy(t *testing.T) {
 				url := "https://example.test/items"
 				if strategy == DedupStrategySelectedFieldsHash {
 					url += "?id=1"
-				} else if strategy == DedupStrategyParameterShapeCoverage {
+				} else if strategy == DedupStrategyCoverageParameters {
 					url += "?id=" + query
 				}
 				return Request{

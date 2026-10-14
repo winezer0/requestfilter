@@ -6,9 +6,9 @@ import (
 	"time"
 )
 
-// PARAM intentionally differs from the reference's early filter: the first
+// DedupStrategyRequireParameters intentionally differs from the reference's early filter: the first
 // complete empty-parameter request passes here and only committed repeats drop.
-func TestRequireParametersAllowsFirstAndDropsRepeatedCompleteNoParameterRequests(t *testing.T) {
+func TestDedupStrategyRequireParametersAllowsFirstAndDropsRepeatedCompleteNoParameterRequests(t *testing.T) {
 	tests := []struct {
 		name    string
 		request Request
@@ -44,7 +44,7 @@ func TestRequireParametersAllowsFirstAndDropsRepeatedCompleteNoParameterRequests
 	}
 }
 
-func TestRequireParametersGroupsEmptyRequestsByAuthenticationAndEndpoint(t *testing.T) {
+func TestDedupStrategyRequireParametersGroupsEmptyRequestsByAuthenticationAndEndpoint(t *testing.T) {
 	options := Options{DedupStrategy: DedupStrategyRequireParameters}
 	request := Request{Method: "GET", URL: "https://example.test/", BodyCaptured: true}
 	requests := []Request{
@@ -72,7 +72,7 @@ func TestRequireParametersGroupsEmptyRequestsByAuthenticationAndEndpoint(t *test
 	}
 }
 
-func TestRequireParametersPendingEmptyRequestCanBeRetried(t *testing.T) {
+func TestDedupStrategyRequireParametersPendingEmptyRequestCanBeRetried(t *testing.T) {
 	session, err := NewSession(Options{DedupStrategy: DedupStrategyRequireParameters})
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +103,7 @@ func TestRequireParametersPendingEmptyRequestCanBeRetried(t *testing.T) {
 	}
 }
 
-func TestRequireParametersEmptyRequestStateExpires(t *testing.T) {
+func TestDedupStrategyRequireParametersEmptyRequestStateExpires(t *testing.T) {
 	session, err := NewSession(Options{DedupStrategy: DedupStrategyRequireParameters, EntryTTL: 10 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +124,7 @@ func TestRequireParametersEmptyRequestStateExpires(t *testing.T) {
 	}
 }
 
-func TestRequireParametersEmptyRequestUsesSessionCapacity(t *testing.T) {
+func TestDedupStrategyRequireParametersEmptyRequestUsesSessionCapacity(t *testing.T) {
 	session, err := NewSession(Options{DedupStrategy: DedupStrategyRequireParameters, MaxEntries: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -145,7 +145,7 @@ func TestRequireParametersEmptyRequestUsesSessionCapacity(t *testing.T) {
 	}
 }
 
-func TestRequireParametersAllowsAllParameterizedRequests(t *testing.T) {
+func TestDedupStrategyRequireParametersAllowsAllParameterizedRequests(t *testing.T) {
 	options := Options{DedupStrategy: DedupStrategyRequireParameters}
 	requests := []Request{
 		{Method: "GET", URL: "https://example.test/search?q=one", BodyCaptured: true},
@@ -167,7 +167,7 @@ func TestRequireParametersAllowsAllParameterizedRequests(t *testing.T) {
 	}
 }
 
-func TestRequireParametersAllowsIncompleteParsingWithoutHashFallback(t *testing.T) {
+func TestDedupStrategyRequireParametersAllowsIncompleteParsingWithoutStrategyFallback(t *testing.T) {
 	session, err := NewSession(Options{DedupStrategy: DedupStrategyRequireParameters})
 	if err != nil {
 		t.Fatal(err)

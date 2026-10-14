@@ -7,8 +7,8 @@ import (
 	"unicode/utf16"
 )
 
-func TestSmartParseFailureAllowsRequestsWithoutHashing(t *testing.T) {
-	session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+func TestDedupStrategyCoverageParametersParseFailureAllowsWithoutStrategyState(t *testing.T) {
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyCoverageParameters})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestSmartParseFailureAllowsRequestsWithoutHashing(t *testing.T) {
 	}
 }
 
-func TestIncompleteBodiesBypassSmartCoverage(t *testing.T) {
+func TestIncompleteBodiesBypassDedupStrategyCoverageParameters(t *testing.T) {
 	tests := []struct {
 		name        string
 		contentType string
@@ -57,7 +57,7 @@ func TestIncompleteBodiesBypassSmartCoverage(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+			session, err := NewSession(Options{DedupStrategy: DedupStrategyCoverageParameters})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -103,8 +103,8 @@ func utf16XML(document string) []byte {
 	return result
 }
 
-func TestParameterLimitBypassesSmartCoverage(t *testing.T) {
-	session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage, MaxParameters: 1})
+func TestParameterLimitBypassesDedupStrategyCoverageParameters(t *testing.T) {
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyCoverageParameters, MaxParameters: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

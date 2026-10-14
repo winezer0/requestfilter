@@ -38,7 +38,7 @@ func TestMultipartEmptyFilenameRemainsAFileField(t *testing.T) {
 		BodyCaptured: true,
 		Body:         []byte("--empty-file\r\nContent-Disposition: form-data; name=\"upload\"; filename=\"\"\r\nContent-Type: application/octet-stream\r\n\r\n\r\n--empty-file--\r\n"),
 	}
-	options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+	options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyCoverageParameters})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestMultipartEmptyFilenameRemainsAFileField(t *testing.T) {
 	}
 }
 
-func TestBodyParserLimitsAllowIncompleteRequestsWithoutHashFallback(t *testing.T) {
+func TestBodyParserLimitsAllowIncompleteRequestsWithoutStrategyFallback(t *testing.T) {
 	tests := []struct {
 		name        string
 		contentType string
@@ -87,7 +87,7 @@ func TestBodyParserLimitsAllowIncompleteRequestsWithoutHashFallback(t *testing.T
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			session, err := NewSession(Options{
-				DedupStrategy: DedupStrategyParameterShapeCoverage,
+				DedupStrategy: DedupStrategyCoverageParameters,
 				MaxJSONDepth:  test.options.MaxJSONDepth,
 				MaxXMLDepth:   test.options.MaxXMLDepth, MaxXMLNodes: test.options.MaxXMLNodes,
 				MaxMultipartParts: test.options.MaxMultipartParts,
@@ -118,7 +118,7 @@ func TestBodyParserLimitsAllowIncompleteRequestsWithoutHashFallback(t *testing.T
 }
 
 func TestHardRequestBodyLimitRemainsInvalid(t *testing.T) {
-	session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage, MaxBodyBytes: 2})
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyCoverageParameters, MaxBodyBytes: 2})
 	if err != nil {
 		t.Fatal(err)
 	}

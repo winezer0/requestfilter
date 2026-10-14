@@ -1,8 +1,6 @@
 # requestfilter
 
-独立的 Go HTTP 请求过滤工具包，支持一次性批量过滤和逐条流式过滤。提供 HASH、PARAM、SMART 三种互相独立的请求去重策略，认证上下文作为独立分组条件。
-
-设计参考了 [passive-scan-client-plus](https://github.com/winezer0/passive-scan-client-plus) 的请求去重思路；本项目使用独立的 Go API 和实现，不依赖 Burp Suite 或 Tanscan。
+独立的 Go HTTP 请求过滤工具包，支持批量和流式过滤。提供四种互相独立的策略：`DedupStrategyNone`、`DedupStrategySelectedFieldsHash`、`DedupStrategyRequireParameters` 和 `DedupStrategyCoverageParameters`。认证信息是过滤时的分组条件，不是单独的策略。
 
 **API 参考：**[查看完整 API 文档](docs/API.md)，包括批量和流式调用、策略语义、认证分组、输入限制及错误处理。
 
@@ -14,7 +12,7 @@ go get github.com/winezer0/requestfilter
 
 ## 批量过滤
 
-批量模式按输入顺序处理请求。未选择策略时不做过滤；HASH、PARAM、SMART 各自独立启用，不叠加其他策略。
+批量模式按输入顺序处理请求。`DedupStrategyNone` 是零值且不做过滤；其他策略每次只选一种，不相互叠加。
 
 ```go
 package main
@@ -84,7 +82,7 @@ var errBodyTooLarge = errors.New("request body exceeds filter limit")
 
 func newFilter() (*requestfilter.Session, error) {
 	return requestfilter.NewSession(requestfilter.Options{
-		DedupStrategy: requestfilter.DedupStrategyParameterShapeCoverage,
+		DedupStrategy: requestfilter.DedupStrategyCoverageParameters,
 		MaxBodyBytes:   int(maxCapturedBodyBytes),
 	})
 }
@@ -186,44 +184,37 @@ func handle(w http.ResponseWriter, r *http.Request, filter *requestfilter.Sessio
 
 持久化状态、跨进程协调和更细粒度的请求头指纹，应由实际集成需求驱动；当前核心只维护单进程会话状态。
 
-## HASH 字段与规范化
+## 请求字段与规范化
 
-`DedupStrategySelectedFieldsHash` 默认对大写方法、规范化 URL、Content-Type、请求体捕获状态和请求体原始字节计算 SHA-256。`AdditionalHashHeaderNames` 为默认字段追加指定请求头；它不替换默认字段。认证分组独立应用，不纳入请求字段列表。
+`DedupStrategySelectedFieldsHash` 根据大写方法、规范化 URL、Content-Type、请求体捕获状态和请求体原始字节计算 SHA-256。`AdditionalHashHeaderNames` 在这些默认字段上追加指定请求头，不替换默认字段。认证分组单独应用，不包含在 `Decision.Fingerprint` 中。
 
 - 默认方法为空时按 `GET` 处理。URL 只接受 HTTP/HTTPS，拒绝 userinfo；主机名转小写，移除默认端口和 fragment，保留路径尾斜杠、转义形式、query 顺序和重复参数。
 - `Content-Type` 规范化媒体类型及参数；额外请求头名大小写不敏感，多个值按原顺序参与摘要。
 - `BodyCaptured` 区分未捕获请求体和已捕获的空请求体。非空 `Body` 必须标记为已捕获。
 - 指纹采用带长度边界的 SHA-256 字段摘要，避免直接保存原始 Cookie、Token 或请求体。
 
-## 去重策略
+## 策略行为
 
-`DedupStrategyNone` 是默认值，不过滤请求。
+| 当前策略名称 | 判定依据 | 首次或新形状请求 | 已记录的重复请求 | 解析不完整时 |
+| --- | --- | --- | --- | --- |
+| `DedupStrategyNone` | 不比较请求 | 放行 | 放行 | 放行 |
+| `DedupStrategySelectedFieldsHash` | 方法、规范化 URL、Content-Type、正文捕获状态和正文；可追加指定请求头 | 放行；下游接收并 `Commit` 后记录 | 已提交的相同请求丢弃 | 不适用参数解析 |
+| `DedupStrategyRequireParameters` | 完整解析后判断参数集合是否为空；按认证组、方法、scheme/host/port、路径和媒体类型分组 | 每组首个完整无参请求放行；带参数请求也放行且不记录 | 后续已提交的无参请求丢弃 | 放行且不记录 |
+| `DedupStrategyCoverageParameters` | 按认证组、方法、scheme/host/port、路径、媒体类型及参数位置/名称比较；忽略参数值 | 新参数名称放行；已确认无参请求的空集合也算新形状 | 形状已被完整覆盖的请求丢弃 | 放行且不记录 |
 
-`DedupStrategySelectedFieldsHash` 使用上述默认字段和附加请求头做精确摘要判重。摘要相同的请求只放行一次。
+策略状态只在允许的请求成功 `Commit` 后生效。未完成的同一请求或参数预留会得到 `ActionRetry`。`DedupStrategyCoverageParameters` 中，`/xxx?a=1` 与 `/xxx?a=20` 的参数位置和名称相同，因此后一个请求在前一个已提交后会被丢弃；出现新的参数位置或名称时，请求会放行并在提交后扩展覆盖状态。
 
-`DedupStrategyRequireParameters`（PARAM）对完整解析且无参数的请求按认证组、方法、路径和媒体类型分组：每组首次请求放行，后续重复请求过滤。带参数请求放行且不记录状态。解析不完整时直接放行，不执行 HASH 回退。
+参数名称按来源解析。Query 和 URL-encoded form 名称按标准表单规则解码；重复的同位置同名参数折叠为一个名称，空名称会保留。非法百分号转义会使解析状态变为 `partial`。JSON 对象递归展开为 JSON Pointer 路径（例如 `/user/id`、`/items/0/id`）；数组索引纳入名称，顶层标量和空对象/数组用 `$` 表示。同一对象内的重复键折叠为一个路径。XML 记录叶子元素及属性路径，例如 `/user/id`、`/user/@role`；同级同名重复元素加从 0 开始的索引，命名空间以 `{URI}name` 纳入路径。Multipart 记录普通字段名和文件字段名，不保留字段值、文件名或文件内容；重复的同位置同名部件折叠为一个名称，`filename*` 也识别为文件字段。
 
-`DedupStrategyParameterShapeCoverage`（SMART）按方法、源站、路径、内容类型、认证分组及参数位置/名称集合判重，忽略参数值。比如 `/xxx?a=1` 与 `/xxx?a=20` 形状相同；空参数集合也视为一种形状。同一形状只有首次成功提交的请求放行。解析不完整时直接放行，不执行 HASH 回退。
-
-### 与参考去重模式的对应
-
-| 策略 | 本包 API | 行为说明 | 支持认证分组 |
-| --- | --- | --- | --- |
-| None | `DedupStrategyNone` | 不过滤请求，默认值。 | 不适用（不判重） |
-| HASH | `DedupStrategySelectedFieldsHash` | 默认字段加调用方指定的请求头字段做精确判重。 | 是 |
-| PARAM | `DedupStrategyRequireParameters` | 完整解析且无参数时，每个认证组/方法/路径/媒体类型组合首次放行，重复请求过滤；带参数和解析不完整的请求放行。 | 是 |
-| SMART | `DedupStrategyParameterShapeCoverage` | 按参数位置和名称覆盖判重；解析器与端点分组细节可能不同。 | 是 |
-Query 和 URL-encoded form 名称按标准表单规则解码；重复出现的同位置同名参数折叠成一个参数名，空名称会保留。非法百分号转义使解析状态变为 `partial`，不使用该来源的部分结果。JSON 对象递归展开为 JSON Pointer 路径（例如 `/user/id`、`/items/0/id`）；数组索引纳入名称，顶层标量和空对象/数组用 `$` 表示。JSON 解码为对象映射，因此同一对象内重复键折叠为一个路径。XML 记录叶子元素及属性路径，例如 `/user/id`、`/user/@role`；同级同名重复元素加从 0 开始的索引（如 `/user/item/0`），命名空间以 `{URI}name` 纳入路径。multipart 只记录普通字段名和文件字段名，不保留字段值、文件名或文件内容；重复的同位置同名部件折叠为一个名称，`filename*` 也识别为文件字段；`MaxMultipartParts` 单独限制部件数。Content-Type 参数和 multipart boundary 不参与 SMART 媒体类型分组。缺少 multipart 结束 boundary 的空正文属于不完整报文；只有最终 boundary 的空 multipart 是完整的空参数形状。
-
-未知媒体类型、未捕获的请求体或解析不完整时，参数状态为 `partial`。PARAM 和 SMART 在此情况下直接放行。`BodyCaptured: false` 对所有 HTTP 方法都表示请求体未捕获；已确认无请求体时应设置为 `true`。XML 使用 Go 标准库解析，非 UTF-8 编码等无法解析的 XML 会走该回退行为。请求体总大小受 `MaxBodyBytes` 限制。
+未知媒体类型、未捕获正文、解析错误或解析资源超限会产生 `ParameterStatusPartial`。`DedupStrategyRequireParameters` 和 `DedupStrategyCoverageParameters` 在此情况下直接放行且不记录策略状态。`BodyCaptured: false` 对所有 HTTP 方法都表示正文未知；已确认无正文时应设置为 `true`。请求正文总大小受 `MaxBodyBytes` 限制。
 
 ## 认证上下文
 
-HASH、PARAM 和 SMART 会自动使用 Cookie 头、Authorization 头，以及名称包含 `token`、`auth`、`sessid`、`session` 的请求头分组；匹配头名和 Authorization 方案名时不区分大小写。`Proxy-Authorization` 始终排除，避免代理凭据误分目标站点。Cookie 项会跨重复 Cookie 头合并，并按名称和值排序后参与分组，因此 Cookie 行和项的顺序变化不改变身份。其他认证头的多个值按输入顺序参与身份。`AdditionalAuthenticationHeaderNames` 可添加如 `X-API-Key` 等自定义头。调用方也可通过 `AuthenticationGroupID` 添加稳定的非秘密分组 ID；该 ID 会与自动识别的头组合。认证值只用于会话内 HMAC 分组，不会存入去重状态或写入判定结果。
+启用任一过滤策略时，包会自动按 Cookie 头、Authorization 头，以及名称包含 `token`、`auth`、`sessid`、`session` 的请求头分组；匹配头名和 Authorization 方案名时不区分大小写。`Proxy-Authorization` 始终排除，避免代理凭据误分目标站点。Cookie 项会跨重复 Cookie 头合并，并按名称和值排序后参与分组，因此 Cookie 行和项的顺序变化不改变身份。其他认证头的多个值按输入顺序参与身份。`AdditionalAuthenticationHeaderNames` 可添加如 `X-API-Key` 等自定义头。调用方也可通过 `AuthenticationGroupID` 添加稳定的非秘密分组 ID；该 ID 会与自动识别的头组合。认证值只用于会话内 HMAC 分组，不会存入去重状态或写入判定结果。
 
 ## 状态限制与错误
 
-`Options` 的零值会采用以下上限：会话状态 10000 项、URL 16 KiB、请求体 8 MiB、每个请求参数 4096 项、JSON/XML 深度各 64 层、XML 元素与属性名总数 10000 个、multipart 部件 4096 个、预留有效期 30 秒。解析器自己的深度、节点、参数或部件上限会将状态标为 `partial`；PARAM 和 SMART 在不完整解析时放行。URL 和请求体硬上限仍会返回 `ErrInvalidRequest`。`MaxEntries` 统计已记录的 HASH 项、PARAM 无参端点、SMART 覆盖端点/参数和未完成的预留引用；容量不足时不会清空已有状态。
+`Options` 的零值会采用以下上限：会话状态 10000 项、URL 16 KiB、请求体 8 MiB、每个请求参数 4096 项、JSON/XML 深度各 64 层、XML 元素与属性名总数 10000 个、multipart 部件 4096 个、预留有效期 30 秒。解析器自己的深度、节点、参数或部件上限会将状态标为 `partial`；两种参数策略在不完整解析时放行。URL 和请求体硬上限仍会返回 `ErrInvalidRequest`。`MaxEntries` 统计字段摘要记录、无参端点记录、覆盖端点/参数记录和未完成的预留引用；容量不足时不会清空已有状态。
 
 `EntryTTL` 控制已提交记录的空闲过期时间，零值表示不过期。预留过期和记录 TTL 都在下一次会话操作时惰性清理，不启动后台 goroutine。调用方应在生命周期结束时调用 `Close`。会话只保存在进程内，进程重启后状态不会保留。
 
@@ -250,7 +241,7 @@ go test -run=NO_TESTS -fuzz=FuzzExtractParameters -fuzztime=30s -parallel=2
 go test -run=NO_TESTS -fuzz=FuzzNormalizeURL -fuzztime=30s -parallel=2
 ```
 
-Run the parser, SMART reservation, and HASH batch benchmarks with allocation reporting:
+运行参数解析、参数覆盖会话和字段摘要批处理基准，并显示内存分配情况：
 
 ```powershell
 go test -run=NO_TESTS -bench=Benchmark -benchmem -benchtime=1s -count=3 ./...

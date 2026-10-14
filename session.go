@@ -74,7 +74,7 @@ func (session *Session) Reserve(request Request) (Decision, Reservation, error) 
 		normalized.hashKey = digestFields(authenticationGroup, normalized.fingerprint)
 	}
 	usesParameters := session.options.DedupStrategy == DedupStrategyRequireParameters ||
-		session.options.DedupStrategy == DedupStrategyParameterShapeCoverage
+		session.options.DedupStrategy == DedupStrategyCoverageParameters
 	if usesParameters {
 		normalized.parameters, normalized.parameterStatus, err = extractParameters(normalized, session.options)
 		if err != nil {
@@ -96,7 +96,7 @@ func (session *Session) Reserve(request Request) (Decision, Reservation, error) 
 	trackHash := session.options.DedupStrategy == DedupStrategySelectedFieldsHash
 	trackEmpty := session.options.DedupStrategy == DedupStrategyRequireParameters &&
 		normalized.parameterStatus == ParameterStatusComplete && len(normalized.parameters) == 0
-	trackCoverage := session.options.DedupStrategy == DedupStrategyParameterShapeCoverage &&
+	trackCoverage := session.options.DedupStrategy == DedupStrategyCoverageParameters &&
 		normalized.parameterStatus == ParameterStatusComplete
 	var coverage *coverageState
 	if trackCoverage {
@@ -132,7 +132,7 @@ func (session *Session) Reserve(request Request) (Decision, Reservation, error) 
 		}
 	}
 
-	if session.options.DedupStrategy == DedupStrategyParameterShapeCoverage && trackCoverage {
+	if session.options.DedupStrategy == DedupStrategyCoverageParameters && trackCoverage {
 		if action, reason := session.coverageDecisionLocked(coverage, parameterIDs, now); action != ActionAllow {
 			decision.Action, decision.Reason = action, reason
 			return decision, Reservation{}, nil

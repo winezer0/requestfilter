@@ -199,7 +199,7 @@ func TestNewSessionRejectsInvalidOptions(t *testing.T) {
 	}{
 		{name: "unknown dedup strategy", options: Options{DedupStrategy: DedupStrategy(99)}},
 		{name: "negative entry ttl", options: Options{EntryTTL: -1}},
-		{name: "invalid additional hash header", options: Options{AdditionalHashHeaderNames: []string{"bad header"}}},
+		{name: "invalid configured request header name", options: Options{AdditionalHashHeaderNames: []string{"bad header"}}},
 		{name: "invalid additional authentication header", options: Options{AdditionalAuthenticationHeaderNames: []string{"bad header"}}},
 		{name: "proxy authorization cannot define target auth group", options: Options{AdditionalAuthenticationHeaderNames: []string{"Proxy-Authorization"}}},
 		{name: "zero max entries", options: Options{MaxEntries: -1}},

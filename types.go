@@ -41,15 +41,15 @@ const (
 	DedupStrategySelectedFieldsHash
 	// DedupStrategyRequireParameters allows the first request per empty-parameter endpoint group.
 	DedupStrategyRequireParameters
-	// DedupStrategyParameterShapeCoverage drops requests whose parameter locations and names are covered.
-	DedupStrategyParameterShapeCoverage
+	// DedupStrategyCoverageParameters drops requests whose parameter locations and names are covered.
+	DedupStrategyCoverageParameters
 )
 
 // Options configures request identity, parameter coverage, and session limits.
 type Options struct {
 	// DedupStrategy selects one strategy for the session; zero means no filtering.
 	DedupStrategy DedupStrategy
-	// AdditionalHashHeaderNames appends these headers to the HASH defaults.
+	// AdditionalHashHeaderNames appends these headers to the default fields of DedupStrategySelectedFieldsHash.
 	AdditionalHashHeaderNames []string
 	// AdditionalAuthenticationHeaderNames adds headers to authentication grouping.
 	// Cookie, Authorization, and common token/auth/session headers are included by default.
@@ -129,7 +129,7 @@ const (
 type Decision struct {
 	Action Action
 	Reason Reason
-	// Fingerprint is the HASH digest and is empty for other strategies.
+	// Fingerprint is the DedupStrategySelectedFieldsHash digest and is empty for other strategies.
 	Fingerprint     string
 	ParameterStatus ParameterStatus
 }
@@ -153,7 +153,7 @@ type normalizedOptions struct {
 }
 
 func normalizeOptions(options Options) (normalizedOptions, error) {
-	if options.DedupStrategy > DedupStrategyParameterShapeCoverage || options.EntryTTL < 0 || options.ReservationTTL < 0 {
+	if options.DedupStrategy > DedupStrategyCoverageParameters || options.EntryTTL < 0 || options.ReservationTTL < 0 {
 		return normalizedOptions{}, ErrInvalidOptions
 	}
 	if options.MaxEntries == 0 {

@@ -22,7 +22,7 @@ go get github.com/winezer0/requestfilter@v0.1.0
 | `Session.Commit` | 下游接收请求后提交预留。 |
 | `Session.Release` | 下游处理失败后释放预留，以便请求重试。 |
 | `Session.Close` | 清理会话状态并禁止后续操作。 |
-| `Decision` | 返回动作、原因、指纹（仅 HASH）和参数解析状态。 |
+| `Decision` | 返回动作、原因、请求指纹（仅 `DedupStrategySelectedFieldsHash`）和参数解析状态。 |
 | `BatchResult` | 返回放行的请求和每个输入请求对应的判定。 |
 
 其他导出类型包括 `DedupStrategy`、`Action`、`Reason`、`Reservation`、`Parameter`、`ParameterLocation` 和 `ParameterStatus`。导出的错误为 `ErrInvalidOptions`、`ErrInvalidRequest`、`ErrSessionClosed` 和 `ErrReservationNotFound`。
@@ -48,24 +48,24 @@ go get github.com/winezer0/requestfilter@v0.1.0
 
 | 策略 | 行为 |
 | --- | --- |
-| `DedupStrategyNone` | 放行所有有效请求。 |
-| `DedupStrategySelectedFieldsHash`（HASH） | 对选定请求字段做精确摘要；相同且已提交的请求会被丢弃。 |
-| `DedupStrategyRequireParameters`（PARAM） | 仅记录完整解析且没有参数的请求。每个端点组的首次请求放行，后续无参请求丢弃；带参数请求直接放行且不记录。 |
-| `DedupStrategyParameterShapeCoverage`（SMART） | 按参数位置和名称集合覆盖判重，不比较参数值。已完整覆盖的请求会被丢弃。 |
+| `DedupStrategyNone` | 不比较请求，放行所有有效请求。 |
+| `DedupStrategySelectedFieldsHash` | 比较方法、规范化 URL、Content-Type、正文捕获状态和正文内容；可追加指定请求头。首次请求放行，下游接收并提交后记录；之后相同的已提交请求丢弃。 |
+| `DedupStrategyRequireParameters` | 完整解析后检查请求是否无参数，并按认证组、方法、scheme/host/port、路径和媒体类型分组。每组首个已提交的完整无参请求放行；后续无参请求丢弃。带参数请求放行且不记录。 |
+| `DedupStrategyCoverageParameters` | 按认证组、方法、scheme/host/port、路径、媒体类型及参数位置/名称比较，忽略参数值。新参数位置或名称放行；已完整覆盖的请求丢弃。 |
 
-PARAM 和 SMART 遇到不完整参数解析时直接放行，不回退到 HASH。SMART 将空参数集合视为一种形状：同组第一次已提交的无参请求放行，后续相同空形状请求丢弃。
+两种参数策略遇到不完整参数解析时直接放行且不记录状态。`DedupStrategyCoverageParameters` 将空参数集合也视为一种形状：同组第一次已提交的无参请求放行，后续相同空形状请求丢弃。策略状态只在放行请求成功提交后生效。
 
-### HASH 身份字段
+### `DedupStrategySelectedFieldsHash` 的请求字段
 
-HASH 默认使用大写后的方法、规范化 URL、规范化后的 `Content-Type`、`BodyCaptured` 状态和正文原始字节。`AdditionalHashHeaderNames` 会在这些默认字段上追加指定请求头，不会替换默认字段。
+此策略默认使用大写后的方法、规范化 URL、规范化后的 `Content-Type`、`BodyCaptured` 状态和正文原始字节。`AdditionalHashHeaderNames` 会在这些默认字段上追加指定请求头，不会替换默认字段。
 
-URL 仅支持 HTTP 和 HTTPS。规范化会将主机名转小写、移除默认端口和 fragment，并保留 query 顺序及重复参数；URL 中的 userinfo 会被拒绝。`Decision.Fingerprint` 是 HASH 请求字段的摘要，不含单独应用的认证分组，因此不能单独作为完整去重身份。
+URL 仅支持 HTTP 和 HTTPS。规范化会将主机名转小写、移除默认端口和 fragment，并保留 query 顺序及重复参数；URL 中的 userinfo 会被拒绝。`Decision.Fingerprint` 是该策略所用请求字段的摘要，不含单独应用的认证分组，因此不能单独作为完整去重身份。
 
-### PARAM 和 SMART 端点分组
+### 参数策略的端点分组
 
-参数策略按认证身份、方法、scheme/host/port、路径和媒体类型分组。支持识别 query、`application/x-www-form-urlencoded`、JSON、XML 和 multipart 字段/文件字段。参数值和上传文件内容不会作为参数名称状态保存。
+`DedupStrategyRequireParameters` 和 `DedupStrategyCoverageParameters` 按认证身份、方法、scheme/host/port、路径和媒体类型分组。支持识别 query、`application/x-www-form-urlencoded`、JSON、XML 和 multipart 字段/文件字段。参数值和上传文件内容不会作为参数名称状态保存。
 
-未知媒体类型、未捕获正文、解析错误或解析资源超限会产生 `ParameterStatusPartial`。PARAM 和 SMART 对此类请求直接放行且不记录策略状态。其他状态为 `ParameterStatusComplete` 和 `ParameterStatusNotRequested`。
+未知媒体类型、未捕获正文、解析错误或解析资源超限会产生 `ParameterStatusPartial`。两种参数策略对此类请求直接放行且不记录状态。其他状态为 `ParameterStatusComplete` 和 `ParameterStatusNotRequested`。
 
 ## 认证分组
 
@@ -185,7 +185,7 @@ func main() {
 
 `Request` 表示解析后的字段，不是原始 HTTP 字节流。调用方负责传入绝对 URL，并映射方法、请求头、正文和可选身份标识。
 
-只有完整读到正文后才能设置 `BodyCaptured: true`。已确认无正文的请求使用空 `Body` 和 `BodyCaptured: true`；正文未知时使用空 `Body` 和 `BodyCaptured: false`。HASH 会区分这两种状态，参数策略会将未知正文视为解析不完整。非空正文配合 `BodyCaptured: false` 会返回 `ErrInvalidRequest`。
+只有完整读到正文后才能设置 `BodyCaptured: true`。已确认无正文的请求使用空 `Body` 和 `BodyCaptured: true`；正文未知时使用空 `Body` 和 `BodyCaptured: false`。`DedupStrategySelectedFieldsHash` 会区分这两种状态，参数策略会将未知正文视为解析不完整。非空正文配合 `BodyCaptured: false` 会返回 `ErrInvalidRequest`。
 
 经 `net/http` 接入时，HTTP server 通常已解码 chunked framing。若适配器读取正文用于过滤，转发前必须恢复正文内容。TLS 在反向代理终止时，应从可信代理配置确定外部 scheme，不要直接信任任意 `X-Forwarded-Proto`。CONNECT authority-form 和 OPTIONS `*` 目标需要集成层确定请求身份或在调用本 API 前旁路。
 
@@ -206,7 +206,7 @@ func main() {
 | `ReservationTTL` | 30 秒 | 待处理预留的有效期。 |
 | `EntryTTL` | 不过期 | 已提交状态的空闲过期时间；零值表示不过期。 |
 
-解析器自身的资源上限会将参数状态标记为不完整；PARAM 和 SMART 随后直接放行。URL 或正文超过硬限制时返回 `ErrInvalidRequest`。策略、TTL、上限或配置请求头名称无效时返回 `ErrInvalidOptions`。错误文本不包含请求凭据或正文值。
+解析器自身的资源上限会将参数状态标记为不完整；两种参数策略随后直接放行。URL 或正文超过硬限制时返回 `ErrInvalidRequest`。策略、TTL、上限或配置请求头名称无效时返回 `ErrInvalidOptions`。错误文本不包含请求凭据或正文值。
 
 会话状态只保存在当前进程和当前 `Session` 中，不持久化，也不跨进程共享。预留过期和 `EntryTTL` 清理由后续会话操作惰性触发，不启动后台 goroutine。所属流量源或任务结束时应调用 `Close`。
 

@@ -20,7 +20,7 @@ type referenceCorpus struct {
 }
 
 type referenceRule struct {
-	Mode            string `json:"mode"`
+		Area            string `json:"area"`
 	SourceBehavior  string `json:"source_behavior"`
 	PackageBehavior string `json:"package_behavior"`
 	Difference      string `json:"difference"`
@@ -66,28 +66,33 @@ func TestReferenceBehaviorCorpus(t *testing.T) {
 	if corpus.Metadata.Repository == "" || corpus.Metadata.Commit == "" || corpus.Metadata.Oracle == "" || len(corpus.Metadata.Evidence) == 0 {
 		t.Fatal("reference corpus must identify its source snapshot and oracle limits")
 	}
-	wantModes := map[string]bool{"HASH": false, "PARAM": false, "SMART": false, "AUTH": false}
-	for _, rule := range corpus.Metadata.Rules {
-		if _, ok := wantModes[rule.Mode]; !ok {
-			t.Errorf("unknown reference rule mode %q", rule.Mode)
-			continue
-		}
-		if wantModes[rule.Mode] || rule.SourceBehavior == "" || rule.PackageBehavior == "" || rule.Difference == "" || rule.Source == "" {
-			t.Errorf("reference rule %q is duplicate or incomplete: %#v", rule.Mode, rule)
-			continue
-		}
-		wantModes[rule.Mode] = true
+	wantAreas := map[string]bool{
+		"DedupStrategySelectedFieldsHash": false,
+		"DedupStrategyRequireParameters": false,
+		"DedupStrategyCoverageParameters": false,
+		"AuthenticationGrouping":         false,
 	}
-	for mode, found := range wantModes {
+	for _, rule := range corpus.Metadata.Rules {
+		if _, ok := wantAreas[rule.Area]; !ok {
+			t.Errorf("unknown reference rule area %q", rule.Area)
+			continue
+		}
+		if wantAreas[rule.Area] || rule.SourceBehavior == "" || rule.PackageBehavior == "" || rule.Difference == "" || rule.Source == "" {
+			t.Errorf("reference rule %q is duplicate or incomplete: %#v", rule.Area, rule)
+			continue
+		}
+		wantAreas[rule.Area] = true
+	}
+	for area, found := range wantAreas {
 		if !found {
-			t.Errorf("reference corpus is missing the %s source rule", mode)
+			t.Errorf("reference corpus is missing the %s source rule", area)
 		}
 	}
 	if len(corpus.Cases) == 0 {
 		t.Fatal("reference corpus must contain cases")
 	}
 
-	options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+	options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyCoverageParameters})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +111,7 @@ func TestReferenceBehaviorCorpus(t *testing.T) {
 			}
 			assertCorpusParameters(t, test.Second.request(), options, test.Status, secondParameters)
 
-			session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+			session, err := NewSession(Options{DedupStrategy: DedupStrategyCoverageParameters})
 			if err != nil {
 				t.Fatal(err)
 			}

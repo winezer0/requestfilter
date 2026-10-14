@@ -18,7 +18,7 @@ func BenchmarkExtractParametersJSON(b *testing.B) {
 		fmt.Fprintf(&body, `"field_%03d":{"id":%d}`, index, index)
 	}
 	body.WriteString(`}}`)
-	options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+	options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyCoverageParameters})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func BenchmarkExtractParametersMultipart(b *testing.B) {
 	if err := writer.Close(); err != nil {
 		b.Fatal(err)
 	}
-	options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+	options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyCoverageParameters})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -73,8 +73,8 @@ func BenchmarkExtractParametersMultipart(b *testing.B) {
 	}
 }
 
-func BenchmarkSessionReserveSMARTCovered(b *testing.B) {
-	session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+func BenchmarkDedupStrategyCoverageParametersCovered(b *testing.B) {
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyCoverageParameters})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func BenchmarkSessionReserveSMARTCovered(b *testing.B) {
 	}
 }
 
-func BenchmarkFilterBatchHASH(b *testing.B) {
+func BenchmarkDedupStrategySelectedFieldsHashBatch(b *testing.B) {
 	const requestCount = 64
 	for _, test := range []struct {
 		name   string
