@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -21,11 +22,12 @@ var (
 
 // Request contains the HTTP request fields used for filtering.
 type Request struct {
-	Method                string
-	URL                   string
-	Header                http.Header
-	Body                  []byte
-	BodyCaptured          bool
+	Method       string
+	URL          string
+	Header       http.Header
+	Body         []byte
+	BodyCaptured bool
+	// AuthenticationGroupID adds a caller-defined partition to detected authentication headers.
 	AuthenticationGroupID string
 }
 
@@ -49,11 +51,14 @@ type Options struct {
 	DedupStrategy DedupStrategy
 	// AdditionalHashHeaderNames appends these headers to the HASH defaults.
 	AdditionalHashHeaderNames []string
-	MaxEntries                int
-	MaxURLBytes               int
-	MaxBodyBytes              int
-	MaxParameters             int
-	MaxJSONDepth              int
+	// AdditionalAuthenticationHeaderNames adds headers to authentication grouping.
+	// Cookie, Authorization, and common token/auth/session headers are included by default.
+	AdditionalAuthenticationHeaderNames []string
+	MaxEntries                          int
+	MaxURLBytes                         int
+	MaxBodyBytes                        int
+	MaxParameters                       int
+	MaxJSONDepth                        int
 	// MaxXMLDepth limits XML nesting; zero uses the package default.
 	MaxXMLDepth int
 	// MaxXMLNodes bounds XML elements and non-namespace attributes; zero uses the package default.
@@ -143,7 +148,8 @@ type BatchResult struct {
 
 type normalizedOptions struct {
 	Options
-	additionalHashHeaderNames []string
+	additionalHashHeaderNames           []string
+	additionalAuthenticationHeaderNames []string
 }
 
 func normalizeOptions(options Options) (normalizedOptions, error) {
@@ -195,7 +201,33 @@ func normalizeOptions(options Options) (normalizedOptions, error) {
 	}
 	sort.Strings(names)
 	options.AdditionalHashHeaderNames = append([]string(nil), names...)
-	return normalizedOptions{Options: options, additionalHashHeaderNames: names}, nil
+	authenticationNames, err := normalizeAuthenticationHeaderNames(options.AdditionalAuthenticationHeaderNames)
+	if err != nil {
+		return normalizedOptions{}, err
+	}
+	options.AdditionalAuthenticationHeaderNames = append([]string(nil), authenticationNames...)
+	return normalizedOptions{
+		Options:                             options,
+		additionalHashHeaderNames:           names,
+		additionalAuthenticationHeaderNames: authenticationNames,
+	}, nil
+}
+
+func normalizeAuthenticationHeaderNames(names []string) ([]string, error) {
+	seen := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		canonical := http.CanonicalHeaderKey(name)
+		if canonical == "" || !validToken(canonical) || strings.EqualFold(canonical, "Proxy-Authorization") {
+			return nil, ErrInvalidOptions
+		}
+		seen[canonical] = struct{}{}
+	}
+	normalized := make([]string, 0, len(seen))
+	for name := range seen {
+		normalized = append(normalized, name)
+	}
+	sort.Strings(normalized)
+	return normalized, nil
 }
 
 func validToken(value string) bool {

@@ -65,6 +65,14 @@ func (session *Session) Reserve(request Request) (Decision, Reservation, error) 
 	if err != nil {
 		return Decision{}, Reservation{}, err
 	}
+	var authenticationGroup string
+	if session.options.DedupStrategy != DedupStrategyNone {
+		authenticationGroup = authenticationGroupKey(request, session.options, session.id[:])
+	}
+	normalized.endpointKey = digestFields(authenticationGroup, normalized.method, normalized.endpointPath, normalized.mediaType)
+	if session.options.DedupStrategy == DedupStrategySelectedFieldsHash {
+		normalized.hashKey = digestFields(authenticationGroup, normalized.fingerprint)
+	}
 	usesParameters := session.options.DedupStrategy == DedupStrategyRequireParameters ||
 		session.options.DedupStrategy == DedupStrategyParameterShapeCoverage
 	if usesParameters {

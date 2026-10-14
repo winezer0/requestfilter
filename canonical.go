@@ -1,6 +1,7 @@
 package requestfilter
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -14,18 +15,17 @@ import (
 )
 
 type normalizedRequest struct {
-	request               Request
-	method                string
-	canonicalURL          string
-	endpointPath          string
-	mediaType             string
-	contentType           string
-	authenticationGroupID string
-	fingerprint           string
-	hashKey               string
-	endpointKey           string
-	parameters            []Parameter
-	parameterStatus       ParameterStatus
+	request         Request
+	method          string
+	canonicalURL    string
+	endpointPath    string
+	mediaType       string
+	contentType     string
+	fingerprint     string
+	hashKey         string
+	endpointKey     string
+	parameters      []Parameter
+	parameterStatus ParameterStatus
 }
 
 func normalizeRequest(request Request, options normalizedOptions) (normalizedRequest, error) {
@@ -48,7 +48,7 @@ func normalizeRequest(request Request, options normalizedOptions) (normalizedReq
 	if len(authenticationGroupID) > 1024 || strings.ContainsAny(authenticationGroupID, "\r\n\x00") {
 		return normalizedRequest{}, ErrInvalidRequest
 	}
-	endpointKey := digestFields(authenticationGroupID, method, endpointPath, mediaType)
+	endpointKey := digestFields(method, endpointPath, mediaType)
 	var fingerprint string
 	var hashKey string
 	if options.DedupStrategy == DedupStrategySelectedFieldsHash {
@@ -64,12 +64,12 @@ func normalizeRequest(request Request, options normalizedOptions) (normalizedReq
 			parts = append(parts, nil)
 		}
 		fingerprint = digestParts(parts...)
-		hashKey = digestFields(authenticationGroupID, fingerprint)
+		hashKey = digestFields(fingerprint)
 	}
 	return normalizedRequest{
 		request: request, method: method, canonicalURL: canonicalURL,
 		endpointPath: endpointPath, mediaType: mediaType, contentType: contentType,
-		authenticationGroupID: authenticationGroupID, fingerprint: fingerprint, hashKey: hashKey, endpointKey: endpointKey,
+		fingerprint: fingerprint, hashKey: hashKey, endpointKey: endpointKey,
 		parameterStatus: ParameterStatusNotRequested,
 	}, nil
 }
@@ -162,6 +162,104 @@ func headerValues(header http.Header, name string) []string {
 		values = append(values, entry.values...)
 	}
 	return values
+}
+
+func authenticationGroupKey(request Request, options normalizedOptions, key []byte) string {
+	var parts [][]byte
+	callerGroupID := strings.TrimSpace(request.AuthenticationGroupID)
+	if callerGroupID != "" {
+		parts = append(parts, []byte("caller-group"), []byte(callerGroupID))
+	}
+
+	additionalNames := make(map[string]struct{}, len(options.additionalAuthenticationHeaderNames))
+	for _, name := range options.additionalAuthenticationHeaderNames {
+		additionalNames[strings.ToLower(name)] = struct{}{}
+	}
+	headerNames := make(map[string]struct{})
+	for name := range request.Header {
+		canonical := http.CanonicalHeaderKey(strings.TrimSpace(name))
+		if canonical == "" || strings.EqualFold(canonical, "Proxy-Authorization") {
+			continue
+		}
+		lowerName := strings.ToLower(canonical)
+		if isBuiltInAuthenticationHeader(lowerName) {
+			headerNames[canonical] = struct{}{}
+			continue
+		}
+		if _, selected := additionalNames[lowerName]; selected {
+			headerNames[canonical] = struct{}{}
+		}
+	}
+
+	names := make([]string, 0, len(headerNames))
+	for name := range headerNames {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		values := headerValues(request.Header, name)
+		if strings.EqualFold(name, "Cookie") {
+			values = canonicalCookieValues(values)
+		} else if strings.EqualFold(name, "Authorization") {
+			for index, value := range values {
+				values[index] = canonicalAuthorizationValue(value)
+			}
+		}
+		if len(values) == 0 {
+			continue
+		}
+		parts = append(parts, []byte("header:"+strings.ToLower(name)))
+		for _, value := range values {
+			parts = append(parts, []byte(strings.TrimSpace(value)))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	mac := hmac.New(sha256.New, key)
+	for _, part := range parts {
+		writePart(mac, part)
+	}
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func canonicalAuthorizationValue(value string) string {
+	trimmed := strings.TrimSpace(value)
+	separator := strings.IndexAny(trimmed, " \t")
+	if separator < 0 {
+		return strings.ToLower(trimmed)
+	}
+	scheme := strings.ToLower(trimmed[:separator])
+	credentials := strings.TrimLeft(trimmed[separator:], " \t")
+	return scheme + " " + credentials
+}
+
+func isBuiltInAuthenticationHeader(lowerName string) bool {
+	if lowerName == "cookie" || lowerName == "authorization" {
+		return true
+	}
+	for _, keyword := range [...]string{"token", "auth", "sessid", "session"} {
+		if strings.Contains(lowerName, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
+func canonicalCookieValues(values []string) []string {
+	pairs := make([]string, 0, len(values))
+	for _, value := range values {
+		for _, pair := range strings.Split(value, ";") {
+			if pair = strings.TrimSpace(pair); pair != "" {
+				pairs = append(pairs, pair)
+			}
+		}
+	}
+	sort.Strings(pairs)
+	if len(pairs) == 0 {
+		return nil
+	}
+	return pairs
 }
 
 func digestFields(fields ...string) string {
