@@ -32,4 +32,6 @@ go.work.sum
 # .idea/
 # .vscode/
 /reference
+/go-build/
+/.gomod-cache/
 /.idea
