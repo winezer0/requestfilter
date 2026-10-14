@@ -96,6 +96,15 @@ The reference README describes the same broad concepts (exact HASH, empty-parame
 - This coverage verifies this package's defined behavior. It does not turn source-derived Burp assumptions into runtime reference results.
 - Verification passed: `go build ./...`, the full test suite (180 tests), `go test -race ./...`, `go vet ./...`, and `git diff --check`. Statement coverage is 92.0%. The temporary coverage profile was removed after measurement.
 
+## 2026-10-14 — Fuzzing, net/http adapter checks, and performance baseline
+
+- Added native fuzz targets for URL normalization and body parameter extraction with seeds for query/form escapes, JSON structure/duplicates, XML validity, multipart boundaries, and unknown media types. The extraction target checks deterministic sorted unique results and valid complete/partial states.
+- Added an internal, non-public adapter example corresponding to the README pattern. Tests cover relative HTTP/HTTPS URL mapping, absolute proxy URLs, exact and over-limit bodies, body restoration after success/read failure/overflow, nil bodies, cloned headers, and missing host rejection.
+- Added benchmarks for 100-field JSON parsing, 64-part multipart parsing, repeated covered SMART reservation, and 64-request HASH batches (duplicate and unique input).
+- Five-second fuzz smoke runs passed on Go 1.26.4 Windows/amd64: parameter parsing executed 122,317 cases; URL normalization executed 257,185 cases. No crashes or nondeterministic results were found.
+- Initial benchmark baseline (`-benchtime=100ms -count=3`) on AMD Ryzen AI MAX+ 395: JSON parse median 127,514 ns/op (170,554 B, 2,647 allocs); multipart parse 133,724 ns/op (174,356 B, 2,213 allocs); covered SMART reserve 3,960 ns/op (2,944 B, 68 allocs); HASH batch duplicate 206,820 ns/op (156,257 B, 3,213 allocs); HASH batch unique 273,931 ns/op (172,617 B, 3,285 allocs). Timing is an initial machine-specific reference; allocation counts were stable across the three samples.
+- Final verification passed: build, full suite (213 tests across two packages), race detector, vet, and diff check. Coverage: root package 92.6%, internal adapter example 96.4%. The temporary coverage profile was removed after measurement.
+
 ## 2026-10-14 — Built-in authentication identity sources
 
 - Every active dedup strategy now partitions by a session-keyed HMAC identity derived from Cookie, Authorization, and header names containing `token`, `auth`, `sessid`, or `session`. Cookie pairs are sorted so header pair order does not split a group.

@@ -169,6 +169,8 @@ func handle(w http.ResponseWriter, r *http.Request, filter *requestfilter.Sessio
 
 示例中的 imports 需要包含 `bytes`、`errors`、`io`、`net/http` 和 `github.com/winezer0/requestfilter`；`sendToScanner` 由调用方实现。生产代码应让 `maxCapturedBodyBytes` 与 `Options.MaxBodyBytes` 一致。通过 TLS 反向代理接入时，应从可信代理配置确定外部 scheme，不要直接信任任意请求的 `X-Forwarded-Proto`。`AuthenticationGroupID` 应来自认证配置或主体的稳定非秘密 ID，不要传 Cookie 或 Token。
 
+对应的适配实现及成功读体、读体错误、超限恢复、HTTP/HTTPS URL 映射测试位于 `internal/nethttpadapterexample`，由 `go test ./...` 一并编译和验证。
+
 如果请求体没有完整捕获，不要把缺失或截断的内容送入 `Reserve` 并期待精确去重：过滤器无法凭空区分正文不同、但可见部分相同的请求。示例在读体失败或超限时不调用过滤器。`BodyCaptured: false` 表示正文未知，不应被当作“已确认的空请求体”。
 
 过滤器接收的是已解析的 `Request` 字段，不解析原始 HTTP 字节流。通过 `net/http` 接入时，chunked framing 通常已由 HTTP server 解码；HTTP/2 伪头也应映射到 `Method`、URL 和普通头字段。`CONNECT host:port` 这样的 authority-form 和 `OPTIONS *` 这样的 asterisk-form 不能直接作为 `URL` 传入；集成方需先决定它们对应的目标 URL/资源身份，或在进入本包前旁路处理。本包不负责验证原始报文行、传输分块或 HTTP/2 framing。
@@ -237,6 +239,19 @@ go build ./...
 go test ./... -cover
 go test -race ./...
 go vet ./...
+```
+
+Run the parser and URL fuzz targets with a bounded local smoke period; `NO_TESTS` avoids shell-specific escaping of Go's empty test-name regular expression:
+
+```powershell
+go test -run=NO_TESTS -fuzz=FuzzExtractParameters -fuzztime=30s -parallel=2
+go test -run=NO_TESTS -fuzz=FuzzNormalizeURL -fuzztime=30s -parallel=2
+```
+
+Run the parser, SMART reservation, and HASH batch benchmarks with allocation reporting:
+
+```powershell
+go test -run=NO_TESTS -bench=Benchmark -benchmem -benchtime=1s -count=3 ./...
 ```
 
 `testdata/reference-corpus.json` pins regression requests to the reference project's source snapshot and records the source-derived expectation for each case. The reference delegates raw request parsing to Burp's `IExtensionHelpers`; the corpus marks results that cannot be confirmed from checked-in source instead of presenting them as Burp runtime observations.
