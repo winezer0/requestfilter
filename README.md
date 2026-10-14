@@ -4,6 +4,8 @@
 
 设计参考了 [passive-scan-client-plus](https://github.com/winezer0/passive-scan-client-plus) 的请求去重思路；本项目使用独立的 Go API 和实现，不依赖 Burp Suite 或 Tanscan。
 
+**API 参考：**[查看完整 API 文档](docs/API.md)，包括批量和流式调用、策略语义、认证分组、输入限制及错误处理。
+
 ## 安装
 
 ```shell
