@@ -35,8 +35,6 @@ type ParameterPolicy uint8
 const (
 	// ParameterPolicyNone disables parameter extraction.
 	ParameterPolicyNone ParameterPolicy = iota
-	// ParameterPolicyReport tracks newly observed parameter locations and names.
-	ParameterPolicyReport
 	// ParameterPolicyCoverage drops requests whose parameter set is already covered.
 	ParameterPolicyCoverage
 	// ParameterPolicyIgnoreEmpty drops requests with complete parameter parsing and no parameters.
@@ -123,7 +121,6 @@ type Decision struct {
 	Action          Action
 	Reason          Reason
 	Fingerprint     string
-	NewParameters   []Parameter
 	ParameterStatus ParameterStatus
 }
 

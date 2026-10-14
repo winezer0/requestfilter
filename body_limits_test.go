@@ -38,7 +38,7 @@ func TestMultipartEmptyFilenameRemainsAFileField(t *testing.T) {
 		BodyCaptured: true,
 		Body:         []byte("--empty-file\r\nContent-Disposition: form-data; name=\"upload\"; filename=\"\"\r\nContent-Type: application/octet-stream\r\n\r\n\r\n--empty-file--\r\n"),
 	}
-	options, err := normalizeOptions(Options{ParameterPolicy: ParameterPolicyReport})
+	options, err := normalizeOptions(Options{ParameterPolicy: ParameterPolicyCoverage})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -78,8 +78,8 @@ func (session *Session) Reserve(request Request) (Decision, Reservation, error) 
 		Action: ActionAllow, Reason: ReasonNewRequest,
 		Fingerprint: normalized.fingerprint, ParameterStatus: normalized.parameterStatus,
 	}
-	trackCoverage := (session.options.ParameterPolicy == ParameterPolicyReport ||
-		session.options.ParameterPolicy == ParameterPolicyCoverage) && normalized.parameterStatus == ParameterStatusComplete
+	trackCoverage := session.options.ParameterPolicy == ParameterPolicyCoverage &&
+		normalized.parameterStatus == ParameterStatusComplete
 	var coverage *coverageState
 	if trackCoverage {
 		coverage = session.coverage[normalized.endpointKey]
@@ -115,7 +115,6 @@ func (session *Session) Reserve(request Request) (Decision, Reservation, error) 
 		}
 	}
 	if trackCoverage {
-		decision.NewParameters = session.newParametersLocked(coverage, normalized.parameters)
 		if coverage != nil {
 			session.touchCoverageLocked(coverage, parameterIDs, now)
 		}
@@ -270,19 +269,6 @@ func (session *Session) coverageDecisionLocked(coverage *coverageState, paramete
 		return ActionDrop, ReasonParameterCoverage
 	}
 	return ActionAllow, ReasonNewRequest
-}
-
-func (session *Session) newParametersLocked(coverage *coverageState, parameters []Parameter) []Parameter {
-	if coverage == nil {
-		return append([]Parameter(nil), parameters...)
-	}
-	newParameters := make([]Parameter, 0, len(parameters))
-	for _, parameter := range parameters {
-		if _, exists := coverage.parameters[parameterID(parameter)]; !exists {
-			newParameters = append(newParameters, parameter)
-		}
-	}
-	return newParameters
 }
 
 func (session *Session) touchCoverageLocked(coverage *coverageState, parameterIDs []string, now time.Time) {

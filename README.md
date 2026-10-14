@@ -1,6 +1,6 @@
 # requestfilter
 
-独立的 Go HTTP 请求过滤工具包，支持一次性批量过滤和逐条流式过滤。提供精确请求去重、参数覆盖统计、可选参数覆盖去重、认证上下文隔离、下游失败重试和有界会话状态。
+独立的 Go HTTP 请求过滤工具包，支持一次性批量过滤和逐条流式过滤。提供精确请求去重、可选参数覆盖去重、认证上下文隔离、下游失败重试和有界会话状态。
 
 设计参考了 [passive-scan-client-plus](https://github.com/winezer0/passive-scan-client-plus) 的请求去重思路；本项目使用独立的 Go API 和实现，不依赖 Burp Suite 或 Tanscan。
 
@@ -12,7 +12,7 @@ go get github.com/winezer0/requestfilter
 
 ## 批量过滤
 
-批量模式按输入顺序处理请求，精确重复的请求只保留第一次出现的实例。参数覆盖统计默认关闭；启用 `ParameterPolicyReport` 后，决策会报告新出现的参数位置和名称，但仍放行不同的精确请求。
+批量模式按输入顺序处理请求，精确重复的请求只保留第一次出现的实例。默认只执行精确去重；可按需启用参数覆盖去重或过滤无参数请求。
 
 ```go
 package main
@@ -28,9 +28,7 @@ func main() {
 		{Method: "GET", URL: "https://example.test/items?id=1"},
 		{Method: "GET", URL: "https://example.test/items?id=1"},
 		{Method: "GET", URL: "https://example.test/items?id=2"},
-	}, requestfilter.Options{
-		ParameterPolicy: requestfilter.ParameterPolicyReport,
-	})
+	}, requestfilter.Options{})
 	if err != nil {
 		panic(err)
 	}
@@ -194,11 +192,9 @@ func handle(w http.ResponseWriter, r *http.Request, filter *requestfilter.Sessio
 
 `ParameterPolicyNone` 是默认值，仅执行精确请求去重。
 
-`ParameterPolicyReport` 统计 query、表单、JSON、XML 和 multipart body 中的位置与参数名，并通过 `Decision.NewParameters` 返回新增项；不同参数值对应的不同请求仍会放行。
-
 `ParameterPolicyCoverage` 显式启用按覆盖集合判重：同一方法、源站、路径、内容类型和认证上下文中，如果参数位置及名称集合已被成功提交的请求覆盖，则丢弃新请求。此模式不比较参数值，适合被动流量归并，不建议作为主动扫描的默认策略。
 
-`ParameterPolicyIgnoreEmpty` 对应参考程序的 PARAM 思路：仅当参数解析完整且没有提取到参数时丢弃请求；解析不完整时回退到精确去重。它独立于 Report 和 Coverage，不影响带参数请求的放行规则。
+`ParameterPolicyIgnoreEmpty` 对应参考程序的 PARAM 思路：仅当参数解析完整且没有提取到参数时丢弃请求；解析不完整时回退到精确去重。它独立于 Coverage，不影响带参数请求的放行规则。
 
 ### 与参考去重模式的对应
 
@@ -208,11 +204,9 @@ func handle(w http.ResponseWriter, r *http.Request, filter *requestfilter.Sessio
 | PARAM | `ParameterPolicyIgnoreEmpty` | 完整解析且参数集合为空时丢弃；不完整解析回退精确去重。 |
 | SMART | `ParameterPolicyCoverage` | 都按参数位置及名称覆盖判重；解析器和端点分组语义不同，不承诺逐项兼容。 |
 | AUTH | `AuthContextID` | 本包由调用方提供非秘密上下文 ID，不自动解析 Cookie 或 Token。 |
-| — | `ParameterPolicyReport` | 只报告新参数，不直接过滤参数覆盖；参考模式没有完全对应项。 |
-
 JSON 对象递归展开为 JSON Pointer 路径（例如 `/user/id`、`/items/0/id`）；数组索引纳入名称。XML 记录叶子元素及属性路径，例如 `/user/id`、`/user/@role`；同级同名重复元素加从 0 开始的索引（如 `/user/item/0`），命名空间以 `{URI}name` 纳入路径。multipart 只记录普通字段名和文件字段名，不保留字段值、文件名或文件内容；`MaxMultipartParts` 单独限制部件数。
 
-未知媒体类型、未捕获的请求体或解析不完整时，参数状态为 `partial`，不参与参数覆盖报告或判重；请求仍按原始请求精确指纹处理。`BodyCaptured: false` 对所有 HTTP 方法都表示请求体未捕获；已确认无请求体时应设置为 `true`。XML 使用 Go 标准库解析，非 UTF-8 编码等无法解析的 XML 会走该回退行为。请求体总大小受 `MaxBodyBytes` 限制。
+未知媒体类型、未捕获的请求体或解析不完整时，参数状态为 `partial`，不参与参数覆盖判重；请求仍按原始请求精确指纹处理。`BodyCaptured: false` 对所有 HTTP 方法都表示请求体未捕获；已确认无请求体时应设置为 `true`。XML 使用 Go 标准库解析，非 UTF-8 编码等无法解析的 XML 会走该回退行为。请求体总大小受 `MaxBodyBytes` 限制。
 
 ## 认证上下文
 

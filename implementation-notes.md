@@ -3,7 +3,7 @@
 ## 2026-10-14 — Initial requestfilter module
 
 - Created the standalone module `github.com/winezer0/requestfilter` with a single public root package. The package uses only the Go standard library and does not import Tanscan or Burp types.
-- Exact request deduplication is always active. Parameter parsing is opt-in through `ParameterPolicyNone`, `ParameterPolicyReport`, or `ParameterPolicyCoverage`; this keeps active-scan callers from dropping requests that differ only by values.
+- Exact request deduplication is always active. Parameter parsing is opt-in through `ParameterPolicyNone`, `ParameterPolicyCoverage`, or `ParameterPolicyIgnoreEmpty`; this keeps active-scan callers from dropping requests that differ only by values unless a filtering policy is selected.
 - Request fingerprints use length-prefixed SHA-256 fields. URL canonicalization lowercases host/scheme, removes default ports and fragments, and preserves path escapes, trailing slashes, query ordering, and repeated query values.
 - Authentication partitioning uses caller-supplied non-secret `AuthContextID`. Raw credentials and request parameter values are not retained in filter state or returned in decisions.
 - Batch filtering and streaming sessions share `Session.Reserve`/`Commit` logic. Streaming state is local to a caller-created session. `Commit` records downstream acceptance; `Release` and lazy reservation expiry permit retries.
@@ -26,8 +26,14 @@
 ## 2026-10-14 — Ignore-empty parameter policy
 
 - Added the standalone `ParameterPolicyIgnoreEmpty` policy, based on the reference PARAM mode. It drops requests only when parameter parsing completes with an empty extracted parameter set; incomplete parsing continues through exact request deduplication.
-- Kept `None`, `Report`, and `Coverage` names as-is and documented their approximate mappings to HASH, PARAM, SMART, and AUTH. `Report` has no direct reference-mode equivalent, and `AuthContextID` remains caller-supplied.
-- Added tests for parameterless requests, empty form bodies, parameterized requests, and malformed JSON fallback. The policy does not alter the Report or Coverage behaviors.
+- Kept descriptive policy names and documented their approximate mappings to HASH, PARAM, SMART, and AUTH. `AuthContextID` remains caller-supplied.
+- Added tests for parameterless requests, empty form bodies, parameterized requests, and malformed JSON fallback. The policy does not alter Coverage behavior.
+
+## 2026-10-14 — Remove parameter reporting API
+
+- Removed `ParameterPolicyReport` and `Decision.NewParameters`; parameter collection without filtering had no role in this package's request deduplication API.
+- Preserved the internal parameter-set tracking used by `ParameterPolicyCoverage`, so coverage filtering behavior is unchanged.
+- Updated README, design, project rules, and coverage tests to describe and verify the remaining policies.
 
 ## 2026-10-14 — Full verification
 
@@ -40,3 +46,8 @@
 
 - Re-ran `go build ./...`, `go test ./... -cover`, `go test -race ./...`, and `go vet ./...` after adding IgnoreEmpty; all passed (87 tests in one package).
 - Statement coverage remained 89.5%. `GOCACHE` and `GOMODCACHE` were the repository-local `go-build` and `.gomod-cache` directories.
+
+## 2026-10-14 — Report API removal verification
+
+- Ran `go build ./...`, the full `go test ./... -cover` suite, `go test -race ./...`, and `go vet ./...`; all passed (86 tests in one package).
+- Statement coverage is 89.4%. `GOCACHE` and `GOMODCACHE` were the repository-local `go-build` and `.gomod-cache` directories.

@@ -162,7 +162,7 @@ func TestParameterExtractionLocations(t *testing.T) {
 			want:       []Parameter{{Location: ParameterQuery, Name: "q"}},
 		},
 	}
-	options, err := normalizeOptions(Options{ParameterPolicy: ParameterPolicyReport})
+	options, err := normalizeOptions(Options{ParameterPolicy: ParameterPolicyCoverage})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestParameterExtractionLocations(t *testing.T) {
 	}
 }
 
-func TestParameterCoveragePolicies(t *testing.T) {
+func TestParameterCoverageDropsCoveredShapesAndAllowsNewNames(t *testing.T) {
 	request := func(query, body string) Request {
 		return Request{
 			Method: "POST", URL: "https://example.test/api" + query,
@@ -194,33 +194,6 @@ func TestParameterCoveragePolicies(t *testing.T) {
 			BodyCaptured: true, Body: []byte(body),
 		}
 	}
-	t.Run("report only tracks newly discovered names", func(t *testing.T) {
-		session, err := NewSession(Options{ParameterPolicy: ParameterPolicyReport})
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer session.Close()
-		first := request("?q=1", `{"item":{"id":1}}`)
-		decision, token, err := session.Reserve(first)
-		if err != nil || decision.Action != ActionAllow {
-			t.Fatalf("Reserve(first) = (%#v, %v)", decision, err)
-		}
-		if err := session.Commit(token); err != nil {
-			t.Fatal(err)
-		}
-		second := request("?q=2", `{"item":{"id":2}}`)
-		decision, token, err = session.Reserve(second)
-		if err != nil || decision.Action != ActionAllow {
-			t.Fatalf("Reserve(second) = (%#v, %v)", decision, err)
-		}
-		if len(decision.NewParameters) != 0 {
-			t.Fatalf("new parameters = %#v, want none", decision.NewParameters)
-		}
-		if err := session.Release(token); err != nil {
-			t.Fatal(err)
-		}
-	})
-
 	t.Run("coverage mode drops covered shapes and allows new names", func(t *testing.T) {
 		session, err := NewSession(Options{ParameterPolicy: ParameterPolicyCoverage})
 		if err != nil {
@@ -244,10 +217,6 @@ func TestParameterCoveragePolicies(t *testing.T) {
 		decision, token, err = session.Reserve(newParameter)
 		if err != nil || decision.Action != ActionAllow {
 			t.Fatalf("Reserve(newParameter) = (%#v, %v)", decision, err)
-		}
-		want := []Parameter{{Location: ParameterJSON, Name: "/email"}}
-		if !reflect.DeepEqual(decision.NewParameters, want) {
-			t.Fatalf("new parameters = %#v, want %#v", decision.NewParameters, want)
 		}
 		if err := session.Commit(token); err != nil {
 			t.Fatal(err)
@@ -278,10 +247,6 @@ func TestCoverageKeepsParameterLocationsDistinct(t *testing.T) {
 	decision, token, err = session.Reserve(second)
 	if err != nil || decision.Action != ActionAllow {
 		t.Fatalf("Reserve(second) = (%#v, %v), want a new query parameter", decision, err)
-	}
-	want := []Parameter{{Location: ParameterQuery, Name: "id"}}
-	if !reflect.DeepEqual(decision.NewParameters, want) {
-		t.Fatalf("new parameters = %#v, want %#v", decision.NewParameters, want)
 	}
 	if err := session.Commit(token); err != nil {
 		t.Fatal(err)

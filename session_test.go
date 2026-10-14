@@ -75,7 +75,7 @@ func TestSessionIsolationAndClose(t *testing.T) {
 }
 
 func TestSessionCapacityAndRelease(t *testing.T) {
-	session, err := NewSession(Options{MaxEntries: 3, ParameterPolicy: ParameterPolicyReport})
+	session, err := NewSession(Options{MaxEntries: 3, ParameterPolicy: ParameterPolicyCoverage})
 	if err != nil {
 		t.Fatal(err)
 	}

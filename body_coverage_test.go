@@ -2,39 +2,34 @@ package requestfilter
 
 import (
 	"net/http"
-	"reflect"
 	"testing"
 )
 
 func TestStructuredBodyFormatsParticipateInCoverage(t *testing.T) {
 	tests := []struct {
-		name          string
-		contentType   string
-		firstBody     string
-		coveredBody   string
-		newShapeBody  string
-		wantNewFields []Parameter
+		name         string
+		contentType  string
+		firstBody    string
+		coveredBody  string
+		newShapeBody string
 	}{
 		{
 			name:        "XML",
 			contentType: "application/xml",
 			firstBody:   `<root><id>1</id></root>`, coveredBody: `<root><id>2</id></root>`,
-			newShapeBody:  `<root><id>2</id><email>x</email></root>`,
-			wantNewFields: []Parameter{{Location: ParameterXML, Name: "/root/email"}},
+			newShapeBody: `<root><id>2</id><email>x</email></root>`,
 		},
 		{
 			name:        "url encoded form",
 			contentType: "application/x-www-form-urlencoded",
 			firstBody:   "id=1", coveredBody: "id=2", newShapeBody: "id=2&email=x",
-			wantNewFields: []Parameter{{Location: ParameterForm, Name: "email"}},
 		},
 		{
-			name:          "multipart fields and file fields",
-			contentType:   "multipart/form-data; boundary=coverage",
-			firstBody:     multipartCoverageBody("1", "a.txt", "a"),
-			coveredBody:   multipartCoverageBody("2", "b.txt", "b"),
-			newShapeBody:  multipartCoverageBodyWithEmail("2", "b.txt", "b"),
-			wantNewFields: []Parameter{{Location: ParameterMultipartField, Name: "email"}},
+			name:         "multipart fields and file fields",
+			contentType:  "multipart/form-data; boundary=coverage",
+			firstBody:    multipartCoverageBody("1", "a.txt", "a"),
+			coveredBody:  multipartCoverageBody("2", "b.txt", "b"),
+			newShapeBody: multipartCoverageBodyWithEmail("2", "b.txt", "b"),
 		},
 	}
 	for _, test := range tests {
@@ -65,9 +60,6 @@ func TestStructuredBodyFormatsParticipateInCoverage(t *testing.T) {
 			newShape, token, err := session.Reserve(makeRequest(test.newShapeBody))
 			if err != nil || newShape.Action != ActionAllow || newShape.ParameterStatus != ParameterStatusComplete {
 				t.Fatalf("Reserve(new shape) = (%#v, %v), want complete allow", newShape, err)
-			}
-			if !reflect.DeepEqual(newShape.NewParameters, test.wantNewFields) {
-				t.Fatalf("new parameters = %#v, want %#v", newShape.NewParameters, test.wantNewFields)
 			}
 			if err := session.Commit(token); err != nil {
 				t.Fatal(err)
