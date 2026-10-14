@@ -29,7 +29,7 @@ type Request struct {
 	AuthContextID string
 }
 
-// ParameterPolicy controls how parsed parameter coverage affects decisions.
+// ParameterPolicy controls how parsed parameters affect decisions.
 type ParameterPolicy uint8
 
 const (
@@ -39,6 +39,8 @@ const (
 	ParameterPolicyReport
 	// ParameterPolicyCoverage drops requests whose parameter set is already covered.
 	ParameterPolicyCoverage
+	// ParameterPolicyIgnoreEmpty drops requests with complete parameter parsing and no parameters.
+	ParameterPolicyIgnoreEmpty
 )
 
 // Options configures request identity, parameter coverage, and session limits.
@@ -81,6 +83,7 @@ const (
 	ReasonNewRequest        Reason = "new_request"
 	ReasonExactDuplicate    Reason = "exact_duplicate"
 	ReasonParameterCoverage Reason = "parameter_coverage"
+	ReasonNoParameters      Reason = "no_parameters"
 	ReasonInFlight          Reason = "in_flight"
 	ReasonCapacity          Reason = "capacity"
 )
@@ -142,7 +145,7 @@ type normalizedOptions struct {
 }
 
 func normalizeOptions(options Options) (normalizedOptions, error) {
-	if options.ParameterPolicy > ParameterPolicyCoverage || options.EntryTTL < 0 || options.ReservationTTL < 0 {
+	if options.ParameterPolicy > ParameterPolicyIgnoreEmpty || options.EntryTTL < 0 || options.ReservationTTL < 0 {
 		return normalizedOptions{}, ErrInvalidOptions
 	}
 	if options.MaxEntries == 0 {

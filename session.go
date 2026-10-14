@@ -78,7 +78,8 @@ func (session *Session) Reserve(request Request) (Decision, Reservation, error) 
 		Action: ActionAllow, Reason: ReasonNewRequest,
 		Fingerprint: normalized.fingerprint, ParameterStatus: normalized.parameterStatus,
 	}
-	trackCoverage := session.options.ParameterPolicy != ParameterPolicyNone && normalized.parameterStatus == ParameterStatusComplete
+	trackCoverage := (session.options.ParameterPolicy == ParameterPolicyReport ||
+		session.options.ParameterPolicy == ParameterPolicyCoverage) && normalized.parameterStatus == ParameterStatusComplete
 	var coverage *coverageState
 	if trackCoverage {
 		coverage = session.coverage[normalized.endpointKey]
@@ -99,6 +100,11 @@ func (session *Session) Reserve(request Request) (Decision, Reservation, error) 
 	}
 	if _, exists := session.pendingExact[normalized.fingerprint]; exists {
 		decision.Action, decision.Reason = ActionRetry, ReasonInFlight
+		return decision, Reservation{}, nil
+	}
+	if session.options.ParameterPolicy == ParameterPolicyIgnoreEmpty &&
+		normalized.parameterStatus == ParameterStatusComplete && len(normalized.parameters) == 0 {
+		decision.Action, decision.Reason = ActionDrop, ReasonNoParameters
 		return decision, Reservation{}, nil
 	}
 

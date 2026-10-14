@@ -23,9 +23,20 @@
 - Added a `net/http` caller adapter example to the README. It restores the consumed body, marks it captured only after a complete bounded read, and documents handling for in-flight retries and capacity rejection. Persistence, cross-process coordination, and finer header fingerprinting remain integration-driven extensions.
 - The adapter bypasses `Reserve` when body capture fails or exceeds the configured limit. An absent body cannot support exact comparison of unseen bytes, even though `BodyCaptured` distinguishes unknown from known-empty bodies in the fingerprint.
 
+## 2026-10-14 — Ignore-empty parameter policy
+
+- Added the standalone `ParameterPolicyIgnoreEmpty` policy, based on the reference PARAM mode. It drops requests only when parameter parsing completes with an empty extracted parameter set; incomplete parsing continues through exact request deduplication.
+- Kept `None`, `Report`, and `Coverage` names as-is and documented their approximate mappings to HASH, PARAM, SMART, and AUTH. `Report` has no direct reference-mode equivalent, and `AuthContextID` remains caller-supplied.
+- Added tests for parameterless requests, empty form bodies, parameterized requests, and malformed JSON fallback. The policy does not alter the Report or Coverage behaviors.
+
 ## 2026-10-14 — Full verification
 
 - Ran `go build ./...` successfully.
 - Ran the complete `go test ./... -cover` suite successfully: 82 tests passed in one package; statement coverage was 89.5%.
 - Ran `go test -race ./...` successfully: 82 tests passed in one package.
 - Used the repository-local `GOCACHE=go-build` and `GOMODCACHE=.gomod-cache` directories. The commands are documented in the README test section.
+
+## 2026-10-14 — Ignore-empty verification
+
+- Re-ran `go build ./...`, `go test ./... -cover`, `go test -race ./...`, and `go vet ./...` after adding IgnoreEmpty; all passed (87 tests in one package).
+- Statement coverage remained 89.5%. `GOCACHE` and `GOMODCACHE` were the repository-local `go-build` and `.gomod-cache` directories.
