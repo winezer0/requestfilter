@@ -34,7 +34,7 @@ func TestStructuredBodyFormatsParticipateInCoverage(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			session, err := NewSession(Options{ParameterPolicy: ParameterPolicyCoverage})
+			session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -71,7 +71,7 @@ func TestStructuredBodyFormatsParticipateInCoverage(t *testing.T) {
 func TestUncapturedBodiesNeverUseParameterCoverage(t *testing.T) {
 	for _, method := range []string{"GET", "HEAD"} {
 		t.Run(method, func(t *testing.T) {
-			session, err := NewSession(Options{ParameterPolicy: ParameterPolicyCoverage})
+			session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -94,6 +94,53 @@ func TestUncapturedBodiesNeverUseParameterCoverage(t *testing.T) {
 				t.Fatalf("Reserve(second) = (%#v, %v), want partial allow", second, err)
 			}
 		})
+	}
+}
+
+func TestSmartTreatsEmptyParameterSetAsAShape(t *testing.T) {
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	request := Request{Method: "GET", URL: "https://example.test/empty", BodyCaptured: true}
+	first, token, err := session.Reserve(request)
+	if err != nil || first.Action != ActionAllow || first.ParameterStatus != ParameterStatusComplete {
+		t.Fatalf("Reserve(first empty shape) = (%#v, %v), want complete allow", first, err)
+	}
+	if err := session.Commit(token); err != nil {
+		t.Fatal(err)
+	}
+	repeated, _, err := session.Reserve(request)
+	if err != nil || repeated.Action != ActionDrop || repeated.Reason != ReasonParameterCoverage {
+		t.Fatalf("Reserve(repeated empty shape) = (%#v, %v), want coverage drop", repeated, err)
+	}
+}
+
+func TestAuthenticationGroupsPartitionSmartCoverage(t *testing.T) {
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	makeRequest := func(group string) Request {
+		return Request{
+			Method: "GET", URL: "https://example.test/items?id=1",
+			BodyCaptured: true, AuthenticationGroupID: group,
+		}
+	}
+	for _, group := range []string{"user-a", "user-b"} {
+		decision, token, err := session.Reserve(makeRequest(group))
+		if err != nil || decision.Action != ActionAllow {
+			t.Fatalf("Reserve(%s) = (%#v, %v), want allow", group, decision, err)
+		}
+		if err := session.Commit(token); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repeated, _, err := session.Reserve(makeRequest("user-a"))
+	if err != nil || repeated.Action != ActionDrop || repeated.Reason != ReasonParameterCoverage {
+		t.Fatalf("Reserve(repeated group) = (%#v, %v), want same-group coverage drop", repeated, err)
 	}
 }
 

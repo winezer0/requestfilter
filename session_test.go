@@ -10,7 +10,7 @@ import (
 )
 
 func TestSessionReservationLifecycle(t *testing.T) {
-	session, err := NewSession(Options{})
+	session, err := NewSession(Options{DedupStrategy: DedupStrategySelectedFieldsHash})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,11 +44,11 @@ func TestSessionReservationLifecycle(t *testing.T) {
 }
 
 func TestSessionIsolationAndClose(t *testing.T) {
-	first, err := NewSession(Options{})
+	first, err := NewSession(Options{DedupStrategy: DedupStrategySelectedFieldsHash})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := NewSession(Options{})
+	second, err := NewSession(Options{DedupStrategy: DedupStrategySelectedFieldsHash})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestSessionIsolationAndClose(t *testing.T) {
 }
 
 func TestSessionCapacityAndRelease(t *testing.T) {
-	session, err := NewSession(Options{MaxEntries: 3, ParameterPolicy: ParameterPolicyCoverage})
+	session, err := NewSession(Options{MaxEntries: 3, DedupStrategy: DedupStrategyParameterShapeCoverage})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestSessionReservationExpiryAllowsRetry(t *testing.T) {
 }
 
 func TestSessionEntryTTL(t *testing.T) {
-	session, err := NewSession(Options{EntryTTL: 10 * time.Millisecond})
+	session, err := NewSession(Options{EntryTTL: 10 * time.Millisecond, DedupStrategy: DedupStrategySelectedFieldsHash})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestSessionEntryTTL(t *testing.T) {
 }
 
 func TestConcurrentReserveIsAtomic(t *testing.T) {
-	session, err := NewSession(Options{})
+	session, err := NewSession(Options{DedupStrategy: DedupStrategySelectedFieldsHash})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestConcurrentReserveIsAtomic(t *testing.T) {
 }
 
 func TestCoveragePendingRequestCanRetryAfterRelease(t *testing.T) {
-	session, err := NewSession(Options{ParameterPolicy: ParameterPolicyCoverage})
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,10 +216,10 @@ func TestCoveragePendingRequestCanRetryAfterRelease(t *testing.T) {
 func TestSensitiveValuesAreNotReturned(t *testing.T) {
 	const secret = "secret-token-value"
 	result, err := FilterBatch([]Request{{
-		URL:           "https://example.test/?token=" + secret,
-		Header:        http.Header{"Cookie": {"session=" + secret}},
-		AuthContextID: secret,
-	}}, Options{})
+		URL:                   "https://example.test/?token=" + secret,
+		Header:                http.Header{"Cookie": {"session=" + secret}},
+		AuthenticationGroupID: secret,
+	}}, Options{DedupStrategy: DedupStrategySelectedFieldsHash})
 	if err != nil {
 		t.Fatal(err)
 	}

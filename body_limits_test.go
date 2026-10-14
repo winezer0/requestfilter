@@ -38,7 +38,7 @@ func TestMultipartEmptyFilenameRemainsAFileField(t *testing.T) {
 		BodyCaptured: true,
 		Body:         []byte("--empty-file\r\nContent-Disposition: form-data; name=\"upload\"; filename=\"\"\r\nContent-Type: application/octet-stream\r\n\r\n\r\n--empty-file--\r\n"),
 	}
-	options, err := normalizeOptions(Options{ParameterPolicy: ParameterPolicyCoverage})
+	options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,9 +87,9 @@ func TestBodyParserLimitsFallBackToExactDedup(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			session, err := NewSession(Options{
-				ParameterPolicy: ParameterPolicyCoverage,
-				MaxJSONDepth:    test.options.MaxJSONDepth,
-				MaxXMLDepth:     test.options.MaxXMLDepth, MaxXMLNodes: test.options.MaxXMLNodes,
+				DedupStrategy: DedupStrategyParameterShapeCoverage,
+				MaxJSONDepth:  test.options.MaxJSONDepth,
+				MaxXMLDepth:   test.options.MaxXMLDepth, MaxXMLNodes: test.options.MaxXMLNodes,
 				MaxMultipartParts: test.options.MaxMultipartParts,
 			})
 			if err != nil {
@@ -118,7 +118,7 @@ func TestBodyParserLimitsFallBackToExactDedup(t *testing.T) {
 }
 
 func TestHardRequestBodyLimitRemainsInvalid(t *testing.T) {
-	session, err := NewSession(Options{ParameterPolicy: ParameterPolicyCoverage, MaxBodyBytes: 2})
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage, MaxBodyBytes: 2})
 	if err != nil {
 		t.Fatal(err)
 	}

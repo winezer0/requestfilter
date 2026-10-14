@@ -21,35 +21,39 @@ var (
 
 // Request contains the HTTP request fields used for filtering.
 type Request struct {
-	Method        string
-	URL           string
-	Header        http.Header
-	Body          []byte
-	BodyCaptured  bool
-	AuthContextID string
+	Method                string
+	URL                   string
+	Header                http.Header
+	Body                  []byte
+	BodyCaptured          bool
+	AuthenticationGroupID string
 }
 
-// ParameterPolicy controls how parsed parameters affect decisions.
-type ParameterPolicy uint8
+// DedupStrategy selects one independent request filtering strategy.
+type DedupStrategy uint8
 
 const (
-	// ParameterPolicyNone disables parameter extraction.
-	ParameterPolicyNone ParameterPolicy = iota
-	// ParameterPolicyCoverage drops requests whose parameter set is already covered.
-	ParameterPolicyCoverage
-	// ParameterPolicyIgnoreEmpty drops requests with complete parameter parsing and no parameters.
-	ParameterPolicyIgnoreEmpty
+	// DedupStrategyNone allows every valid request.
+	DedupStrategyNone DedupStrategy = iota
+	// DedupStrategySelectedFieldsHash hashes default request fields and configured additional headers.
+	DedupStrategySelectedFieldsHash
+	// DedupStrategyRequireParameters drops completely parsed requests without parameters.
+	DedupStrategyRequireParameters
+	// DedupStrategyParameterShapeCoverage drops requests whose parameter locations and names are covered.
+	DedupStrategyParameterShapeCoverage
 )
 
 // Options configures request identity, parameter coverage, and session limits.
 type Options struct {
-	ParameterPolicy        ParameterPolicy
-	FingerprintHeaderNames []string
-	MaxEntries             int
-	MaxURLBytes            int
-	MaxBodyBytes           int
-	MaxParameters          int
-	MaxJSONDepth           int
+	// DedupStrategy selects one strategy for the session; zero means no filtering.
+	DedupStrategy DedupStrategy
+	// AdditionalHashHeaderNames appends these headers to the HASH defaults.
+	AdditionalHashHeaderNames []string
+	MaxEntries                int
+	MaxURLBytes               int
+	MaxBodyBytes              int
+	MaxParameters             int
+	MaxJSONDepth              int
 	// MaxXMLDepth limits XML nesting; zero uses the package default.
 	MaxXMLDepth int
 	// MaxXMLNodes bounds XML elements and non-namespace attributes; zero uses the package default.
@@ -118,8 +122,9 @@ const (
 
 // Decision is the filter result for one request.
 type Decision struct {
-	Action          Action
-	Reason          Reason
+	Action Action
+	Reason Reason
+	// Fingerprint is the HASH digest and is empty for other strategies.
 	Fingerprint     string
 	ParameterStatus ParameterStatus
 }
@@ -138,11 +143,11 @@ type BatchResult struct {
 
 type normalizedOptions struct {
 	Options
-	fingerprintHeaderNames []string
+	additionalHashHeaderNames []string
 }
 
 func normalizeOptions(options Options) (normalizedOptions, error) {
-	if options.ParameterPolicy > ParameterPolicyIgnoreEmpty || options.EntryTTL < 0 || options.ReservationTTL < 0 {
+	if options.DedupStrategy > DedupStrategyParameterShapeCoverage || options.EntryTTL < 0 || options.ReservationTTL < 0 {
 		return normalizedOptions{}, ErrInvalidOptions
 	}
 	if options.MaxEntries == 0 {
@@ -176,8 +181,8 @@ func normalizeOptions(options Options) (normalizedOptions, error) {
 		options.MaxJSONDepth < 1 || options.MaxXMLDepth < 1 || options.MaxXMLNodes < 1 || options.MaxMultipartParts < 1 {
 		return normalizedOptions{}, ErrInvalidOptions
 	}
-	seen := make(map[string]struct{}, len(options.FingerprintHeaderNames))
-	for _, name := range options.FingerprintHeaderNames {
+	seen := make(map[string]struct{}, len(options.AdditionalHashHeaderNames))
+	for _, name := range options.AdditionalHashHeaderNames {
 		canonical := http.CanonicalHeaderKey(name)
 		if canonical == "" || !validToken(canonical) {
 			return normalizedOptions{}, ErrInvalidOptions
@@ -189,8 +194,8 @@ func normalizeOptions(options Options) (normalizedOptions, error) {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	options.FingerprintHeaderNames = append([]string(nil), names...)
-	return normalizedOptions{Options: options, fingerprintHeaderNames: names}, nil
+	options.AdditionalHashHeaderNames = append([]string(nil), names...)
+	return normalizedOptions{Options: options, additionalHashHeaderNames: names}, nil
 }
 
 func validToken(value string) bool {

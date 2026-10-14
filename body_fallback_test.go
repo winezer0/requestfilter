@@ -7,8 +7,8 @@ import (
 	"unicode/utf16"
 )
 
-func TestCoverageParseFailureFallsBackToExactDedup(t *testing.T) {
-	session, err := NewSession(Options{ParameterPolicy: ParameterPolicyCoverage})
+func TestSmartParseFailureAllowsRequestsWithoutHashing(t *testing.T) {
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,13 +25,16 @@ func TestCoverageParseFailureFallsBackToExactDedup(t *testing.T) {
 	if err := session.Commit(token); err != nil {
 		t.Fatal(err)
 	}
-	decision, _, err = session.Reserve(request)
-	if err != nil || decision.Action != ActionDrop || decision.Reason != ReasonExactDuplicate {
-		t.Fatalf("Reserve(repeated malformed) = (%#v, %v)", decision, err)
+	decision, token, err = session.Reserve(request)
+	if err != nil || decision.Action != ActionAllow || decision.ParameterStatus != ParameterStatusPartial {
+		t.Fatalf("Reserve(repeated malformed) = (%#v, %v), want partial allow", decision, err)
+	}
+	if err := session.Commit(token); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestIncompleteBodiesFallBackToExactDedup(t *testing.T) {
+func TestIncompleteBodiesBypassSmartCoverage(t *testing.T) {
 	tests := []struct {
 		name        string
 		contentType string
@@ -54,7 +57,7 @@ func TestIncompleteBodiesFallBackToExactDedup(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			session, err := NewSession(Options{ParameterPolicy: ParameterPolicyCoverage})
+			session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -79,9 +82,12 @@ func TestIncompleteBodiesFallBackToExactDedup(t *testing.T) {
 			if err := session.Commit(token); err != nil {
 				t.Fatal(err)
 			}
-			repeated, _, err := session.Reserve(makeRequest(test.secondBody))
-			if err != nil || repeated.Action != ActionDrop || repeated.Reason != ReasonExactDuplicate {
-				t.Fatalf("Reserve(repeated) = (%#v, %v), want exact duplicate", repeated, err)
+			repeated, token, err := session.Reserve(makeRequest(test.secondBody))
+			if err != nil || repeated.Action != ActionAllow || repeated.ParameterStatus != ParameterStatusPartial {
+				t.Fatalf("Reserve(repeated) = (%#v, %v), want partial allow", repeated, err)
+			}
+			if err := session.Commit(token); err != nil {
+				t.Fatal(err)
 			}
 		})
 	}
@@ -97,8 +103,8 @@ func utf16XML(document string) []byte {
 	return result
 }
 
-func TestParameterLimitFallsBackToExactDedup(t *testing.T) {
-	session, err := NewSession(Options{ParameterPolicy: ParameterPolicyCoverage, MaxParameters: 1})
+func TestParameterLimitBypassesSmartCoverage(t *testing.T) {
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage, MaxParameters: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,8 +125,11 @@ func TestParameterLimitFallsBackToExactDedup(t *testing.T) {
 	if err := session.Commit(token); err != nil {
 		t.Fatal(err)
 	}
-	decision, _, err = session.Reserve(second)
-	if err != nil || decision.Action != ActionDrop || decision.Reason != ReasonExactDuplicate {
-		t.Fatalf("Reserve(repeated) = (%#v, %v), want exact duplicate", decision, err)
+	decision, reservation, err := session.Reserve(second)
+	if err != nil || decision.Action != ActionAllow || decision.ParameterStatus != ParameterStatusPartial {
+		t.Fatalf("Reserve(repeated) = (%#v, %v), want partial allow", decision, err)
+	}
+	if err := session.Commit(reservation); err != nil {
+		t.Fatal(err)
 	}
 }

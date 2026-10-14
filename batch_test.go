@@ -15,7 +15,8 @@ func TestFilterBatchRequestIdentity(t *testing.T) {
 		wantLast  Reason
 	}{
 		{
-			name: "canonical host default port and fragment",
+			name:    "canonical host default port and fragment",
+			options: Options{DedupStrategy: DedupStrategySelectedFieldsHash},
 			requests: []Request{
 				{URL: "HTTP://Example.COM:80/a#first"},
 				{URL: "http://example.com/a#second"},
@@ -23,7 +24,16 @@ func TestFilterBatchRequestIdentity(t *testing.T) {
 			wantCount: 1, wantLast: ReasonExactDuplicate,
 		},
 		{
-			name: "query order is preserved",
+			name: "no strategy does not filter duplicate requests",
+			requests: []Request{
+				{URL: "https://example.test/a"},
+				{URL: "https://example.test/a"},
+			},
+			wantCount: 2, wantLast: ReasonNewRequest,
+		},
+		{
+			name:    "query order is preserved",
+			options: Options{DedupStrategy: DedupStrategySelectedFieldsHash},
 			requests: []Request{
 				{URL: "https://example.test/?a=1&b=2"},
 				{URL: "https://example.test/?b=2&a=1"},
@@ -31,7 +41,8 @@ func TestFilterBatchRequestIdentity(t *testing.T) {
 			wantCount: 2, wantLast: ReasonNewRequest,
 		},
 		{
-			name: "method is part of the fingerprint",
+			name:    "method is part of the fingerprint",
+			options: Options{DedupStrategy: DedupStrategySelectedFieldsHash},
 			requests: []Request{
 				{Method: "GET", URL: "https://example.test/a"},
 				{Method: "post", URL: "https://example.test/a"},
@@ -39,15 +50,17 @@ func TestFilterBatchRequestIdentity(t *testing.T) {
 			wantCount: 2, wantLast: ReasonNewRequest,
 		},
 		{
-			name: "authentication context is part of the fingerprint",
+			name:    "authentication group partitions requests",
+			options: Options{DedupStrategy: DedupStrategySelectedFieldsHash},
 			requests: []Request{
-				{URL: "https://example.test/a", AuthContextID: "user-a"},
-				{URL: "https://example.test/a", AuthContextID: "user-b"},
+				{URL: "https://example.test/a", AuthenticationGroupID: "user-a"},
+				{URL: "https://example.test/a", AuthenticationGroupID: "user-b"},
 			},
 			wantCount: 2, wantLast: ReasonNewRequest,
 		},
 		{
-			name: "captured empty body differs from unknown body",
+			name:    "captured empty body differs from unknown body",
+			options: Options{DedupStrategy: DedupStrategySelectedFieldsHash},
 			requests: []Request{
 				{Method: "POST", URL: "https://example.test/a"},
 				{Method: "POST", URL: "https://example.test/a", BodyCaptured: true},
@@ -55,7 +68,8 @@ func TestFilterBatchRequestIdentity(t *testing.T) {
 			wantCount: 2, wantLast: ReasonNewRequest,
 		},
 		{
-			name: "body bytes are part of the fingerprint",
+			name:    "body bytes are part of the fingerprint",
+			options: Options{DedupStrategy: DedupStrategySelectedFieldsHash},
 			requests: []Request{
 				{Method: "POST", URL: "https://example.test/a", BodyCaptured: true, Body: []byte("x=1")},
 				{Method: "POST", URL: "https://example.test/a", BodyCaptured: true, Body: []byte("x=2")},
@@ -63,16 +77,17 @@ func TestFilterBatchRequestIdentity(t *testing.T) {
 			wantCount: 2, wantLast: ReasonNewRequest,
 		},
 		{
-			name: "selected headers are normalized and included",
+			name:    "additional headers are normalized and included",
+			options: Options{DedupStrategy: DedupStrategySelectedFieldsHash, AdditionalHashHeaderNames: []string{"x-mode"}},
 			requests: []Request{
 				{URL: "https://example.test/a", Header: http.Header{"X-Mode": {"one"}}},
 				{URL: "https://example.test/a", Header: http.Header{"x-mode": {"two"}}},
 			},
-			options:   Options{FingerprintHeaderNames: []string{"x-mode"}},
 			wantCount: 2, wantLast: ReasonNewRequest,
 		},
 		{
-			name: "unselected headers do not affect identity",
+			name:    "additional headers do not affect identity",
+			options: Options{DedupStrategy: DedupStrategySelectedFieldsHash},
 			requests: []Request{
 				{URL: "https://example.test/a", Header: http.Header{"X-Noise": {"one"}}},
 				{URL: "https://example.test/a", Header: http.Header{"X-Noise": {"two"}}},
@@ -122,7 +137,7 @@ func TestFilterBatchHTTPMethods(t *testing.T) {
 					BodyCaptured: true, Body: []byte("same body"),
 				})
 			}
-			result, err := FilterBatch(requests, Options{})
+			result, err := FilterBatch(requests, Options{DedupStrategy: DedupStrategySelectedFieldsHash})
 			if err != nil {
 				t.Fatalf("FilterBatch() error = %v", err)
 			}
@@ -182,9 +197,9 @@ func TestNewSessionRejectsInvalidOptions(t *testing.T) {
 		name    string
 		options Options
 	}{
-		{name: "unknown parameter policy", options: Options{ParameterPolicy: ParameterPolicy(99)}},
+		{name: "unknown dedup strategy", options: Options{DedupStrategy: DedupStrategy(99)}},
 		{name: "negative entry ttl", options: Options{EntryTTL: -1}},
-		{name: "invalid header name", options: Options{FingerprintHeaderNames: []string{"bad header"}}},
+		{name: "invalid additional hash header", options: Options{AdditionalHashHeaderNames: []string{"bad header"}}},
 		{name: "zero max entries", options: Options{MaxEntries: -1}},
 		{name: "negative XML depth", options: Options{MaxXMLDepth: -1}},
 		{name: "negative XML node limit", options: Options{MaxXMLNodes: -1}},

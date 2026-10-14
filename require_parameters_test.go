@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestIgnoreEmptyDropsCompletelyParsedRequestsWithoutParameters(t *testing.T) {
+func TestRequireParametersDropsCompletelyParsedRequestsWithoutParameters(t *testing.T) {
 	tests := []struct {
 		name    string
 		request Request
@@ -24,7 +24,7 @@ func TestIgnoreEmptyDropsCompletelyParsedRequestsWithoutParameters(t *testing.T)
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result, err := FilterBatch([]Request{test.request, test.request}, Options{ParameterPolicy: ParameterPolicyIgnoreEmpty})
+			result, err := FilterBatch([]Request{test.request, test.request}, Options{DedupStrategy: DedupStrategyRequireParameters})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -40,8 +40,8 @@ func TestIgnoreEmptyDropsCompletelyParsedRequestsWithoutParameters(t *testing.T)
 	}
 }
 
-func TestIgnoreEmptyKeepsParameterizedRequestsOnExactDedupPath(t *testing.T) {
-	options := Options{ParameterPolicy: ParameterPolicyIgnoreEmpty}
+func TestRequireParametersAllowsAllParameterizedRequests(t *testing.T) {
+	options := Options{DedupStrategy: DedupStrategyRequireParameters}
 	requests := []Request{
 		{Method: "GET", URL: "https://example.test/search?q=one", BodyCaptured: true},
 		{Method: "GET", URL: "https://example.test/search?q=two", BodyCaptured: true},
@@ -51,19 +51,19 @@ func TestIgnoreEmptyKeepsParameterizedRequestsOnExactDedupPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Accepted) != 2 {
-		t.Fatalf("len(Accepted) = %d, want 2", len(result.Accepted))
+	if len(result.Accepted) != 3 {
+		t.Fatalf("len(Accepted) = %d, want 3", len(result.Accepted))
 	}
 	if result.Decisions[0].Action != ActionAllow || result.Decisions[0].Reason != ReasonNewRequest || result.Decisions[1].Action != ActionAllow {
 		t.Fatalf("parameterized decisions = %#v, want distinct requests allowed", result.Decisions[:2])
 	}
-	if decision := result.Decisions[2]; decision.Action != ActionDrop || decision.Reason != ReasonExactDuplicate {
-		t.Fatalf("repeated decision = %#v, want exact duplicate", decision)
+	if decision := result.Decisions[2]; decision.Action != ActionAllow || decision.Reason != ReasonNewRequest {
+		t.Fatalf("repeated decision = %#v, want independent parameter strategy allow", decision)
 	}
 }
 
-func TestIgnoreEmptyIncompleteParsingFallsBackToExactDedup(t *testing.T) {
-	session, err := NewSession(Options{ParameterPolicy: ParameterPolicyIgnoreEmpty})
+func TestRequireParametersAllowsIncompleteParsingWithoutHashFallback(t *testing.T) {
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyRequireParameters})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,8 +80,11 @@ func TestIgnoreEmptyIncompleteParsingFallsBackToExactDedup(t *testing.T) {
 	if err := session.Commit(token); err != nil {
 		t.Fatal(err)
 	}
-	decision, _, err = session.Reserve(request)
-	if err != nil || decision.Action != ActionDrop || decision.Reason != ReasonExactDuplicate {
-		t.Fatalf("Reserve(repeated malformed) = (%#v, %v), want exact duplicate", decision, err)
+	decision, token, err = session.Reserve(request)
+	if err != nil || decision.Action != ActionAllow || decision.ParameterStatus != ParameterStatusPartial {
+		t.Fatalf("Reserve(repeated malformed) = (%#v, %v), want partial allow", decision, err)
+	}
+	if err := session.Commit(token); err != nil {
+		t.Fatal(err)
 	}
 }

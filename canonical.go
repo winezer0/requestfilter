@@ -14,17 +14,18 @@ import (
 )
 
 type normalizedRequest struct {
-	request         Request
-	method          string
-	canonicalURL    string
-	endpointPath    string
-	mediaType       string
-	contentType     string
-	authContextID   string
-	fingerprint     string
-	endpointKey     string
-	parameters      []Parameter
-	parameterStatus ParameterStatus
+	request               Request
+	method                string
+	canonicalURL          string
+	endpointPath          string
+	mediaType             string
+	contentType           string
+	authenticationGroupID string
+	fingerprint           string
+	hashKey               string
+	endpointKey           string
+	parameters            []Parameter
+	parameterStatus       ParameterStatus
 }
 
 func normalizeRequest(request Request, options normalizedOptions) (normalizedRequest, error) {
@@ -43,28 +44,32 @@ func normalizeRequest(request Request, options normalizedOptions) (normalizedReq
 		return normalizedRequest{}, ErrInvalidRequest
 	}
 	contentType, mediaType := normalizedContentType(headerValues(request.Header, "Content-Type"))
-	authContextID := strings.TrimSpace(request.AuthContextID)
-	if len(authContextID) > 1024 || strings.ContainsAny(authContextID, "\r\n\x00") {
+	authenticationGroupID := strings.TrimSpace(request.AuthenticationGroupID)
+	if len(authenticationGroupID) > 1024 || strings.ContainsAny(authenticationGroupID, "\r\n\x00") {
 		return normalizedRequest{}, ErrInvalidRequest
 	}
-	endpointKey := digestFields(method, endpointPath, mediaType, authContextID)
-	parts := [][]byte{
-		[]byte(method), []byte(canonicalURL), []byte(contentType),
-		[]byte(strconv.FormatBool(request.BodyCaptured)), request.Body,
-		[]byte(authContextID),
-	}
-	for _, headerName := range options.fingerprintHeaderNames {
-		parts = append(parts, []byte(headerName))
-		for _, value := range headerValues(request.Header, headerName) {
-			parts = append(parts, []byte(strings.TrimSpace(value)))
+	endpointKey := digestFields(authenticationGroupID, method, endpointPath, mediaType)
+	var fingerprint string
+	var hashKey string
+	if options.DedupStrategy == DedupStrategySelectedFieldsHash {
+		parts := [][]byte{
+			[]byte(method), []byte(canonicalURL), []byte(contentType),
+			[]byte(strconv.FormatBool(request.BodyCaptured)), request.Body,
 		}
-		parts = append(parts, nil)
+		for _, headerName := range options.additionalHashHeaderNames {
+			parts = append(parts, []byte(headerName))
+			for _, value := range headerValues(request.Header, headerName) {
+				parts = append(parts, []byte(strings.TrimSpace(value)))
+			}
+			parts = append(parts, nil)
+		}
+		fingerprint = digestParts(parts...)
+		hashKey = digestFields(authenticationGroupID, fingerprint)
 	}
-	fingerprint := digestParts(parts...)
 	return normalizedRequest{
 		request: request, method: method, canonicalURL: canonicalURL,
 		endpointPath: endpointPath, mediaType: mediaType, contentType: contentType,
-		authContextID: authContextID, fingerprint: fingerprint, endpointKey: endpointKey,
+		authenticationGroupID: authenticationGroupID, fingerprint: fingerprint, hashKey: hashKey, endpointKey: endpointKey,
 		parameterStatus: ParameterStatusNotRequested,
 	}, nil
 }

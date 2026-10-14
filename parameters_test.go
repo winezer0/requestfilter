@@ -162,7 +162,7 @@ func TestParameterExtractionLocations(t *testing.T) {
 			want:       []Parameter{{Location: ParameterQuery, Name: "q"}},
 		},
 	}
-	options, err := normalizeOptions(Options{ParameterPolicy: ParameterPolicyCoverage})
+	options, err := normalizeOptions(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestParameterCoverageDropsCoveredShapesAndAllowsNewNames(t *testing.T) {
 		}
 	}
 	t.Run("coverage mode drops covered shapes and allows new names", func(t *testing.T) {
-		session, err := NewSession(Options{ParameterPolicy: ParameterPolicyCoverage})
+		session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -225,7 +225,7 @@ func TestParameterCoverageDropsCoveredShapesAndAllowsNewNames(t *testing.T) {
 }
 
 func TestCoverageKeepsParameterLocationsDistinct(t *testing.T) {
-	session, err := NewSession(Options{ParameterPolicy: ParameterPolicyCoverage})
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyParameterShapeCoverage})
 	if err != nil {
 		t.Fatal(err)
 	}

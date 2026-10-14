@@ -22,9 +22,10 @@ type Session struct {
 }
 
 type reservationState struct {
-	fingerprint   string
+	hashKey       string
 	endpointKey   string
 	parameterIDs  []string
+	trackHash     bool
 	trackCoverage bool
 	expiresAt     time.Time
 }
@@ -60,7 +61,9 @@ func (session *Session) Reserve(request Request) (Decision, Reservation, error) 
 	if err != nil {
 		return Decision{}, Reservation{}, err
 	}
-	if session.options.ParameterPolicy != ParameterPolicyNone {
+	usesParameters := session.options.DedupStrategy == DedupStrategyRequireParameters ||
+		session.options.DedupStrategy == DedupStrategyParameterShapeCoverage
+	if usesParameters {
 		normalized.parameters, normalized.parameterStatus, err = extractParameters(normalized, session.options)
 		if err != nil {
 			return Decision{}, Reservation{}, err
@@ -78,7 +81,8 @@ func (session *Session) Reserve(request Request) (Decision, Reservation, error) 
 		Action: ActionAllow, Reason: ReasonNewRequest,
 		Fingerprint: normalized.fingerprint, ParameterStatus: normalized.parameterStatus,
 	}
-	trackCoverage := session.options.ParameterPolicy == ParameterPolicyCoverage &&
+	trackHash := session.options.DedupStrategy == DedupStrategySelectedFieldsHash
+	trackCoverage := session.options.DedupStrategy == DedupStrategyParameterShapeCoverage &&
 		normalized.parameterStatus == ParameterStatusComplete
 	var coverage *coverageState
 	if trackCoverage {
@@ -90,25 +94,24 @@ func (session *Session) Reserve(request Request) (Decision, Reservation, error) 
 			parameterIDs[index] = parameterID(parameter)
 		}
 	}
-	if _, exists := session.exact[normalized.fingerprint]; exists {
-		session.exact[normalized.fingerprint] = now
-		if coverage != nil {
-			session.touchCoverageLocked(coverage, parameterIDs, now)
+	if trackHash {
+		if _, exists := session.exact[normalized.hashKey]; exists {
+			session.exact[normalized.hashKey] = now
+			decision.Action, decision.Reason = ActionDrop, ReasonExactDuplicate
+			return decision, Reservation{}, nil
 		}
-		decision.Action, decision.Reason = ActionDrop, ReasonExactDuplicate
-		return decision, Reservation{}, nil
+		if _, exists := session.pendingExact[normalized.hashKey]; exists {
+			decision.Action, decision.Reason = ActionRetry, ReasonInFlight
+			return decision, Reservation{}, nil
+		}
 	}
-	if _, exists := session.pendingExact[normalized.fingerprint]; exists {
-		decision.Action, decision.Reason = ActionRetry, ReasonInFlight
-		return decision, Reservation{}, nil
-	}
-	if session.options.ParameterPolicy == ParameterPolicyIgnoreEmpty &&
+	if session.options.DedupStrategy == DedupStrategyRequireParameters &&
 		normalized.parameterStatus == ParameterStatusComplete && len(normalized.parameters) == 0 {
 		decision.Action, decision.Reason = ActionDrop, ReasonNoParameters
 		return decision, Reservation{}, nil
 	}
 
-	if session.options.ParameterPolicy == ParameterPolicyCoverage && trackCoverage {
+	if session.options.DedupStrategy == DedupStrategyParameterShapeCoverage && trackCoverage {
 		if action, reason := session.coverageDecisionLocked(coverage, parameterIDs, now); action != ActionAllow {
 			decision.Action, decision.Reason = action, reason
 			return decision, Reservation{}, nil
@@ -139,13 +142,16 @@ func (session *Session) Reserve(request Request) (Decision, Reservation, error) 
 	id := session.nextID
 	reservation := Reservation{sessionID: session.id, id: id}
 	state := &reservationState{
-		fingerprint:   normalized.fingerprint,
+		hashKey:       normalized.hashKey,
 		endpointKey:   normalized.endpointKey,
+		trackHash:     trackHash,
 		trackCoverage: trackCoverage,
 		expiresAt:     now.Add(session.options.ReservationTTL),
 	}
 	session.pending[id] = state
-	session.pendingExact[normalized.fingerprint] = id
+	if trackHash {
+		session.pendingExact[normalized.hashKey] = id
+	}
 	session.stateEntries++
 	if trackCoverage {
 		if coverage == nil {
@@ -185,7 +191,11 @@ func (session *Session) Commit(reservation Reservation) error {
 		return ErrReservationNotFound
 	}
 	session.finishPendingLocked(reservation.id, state)
-	session.exact[state.fingerprint] = now
+	if state.trackHash {
+		session.exact[state.hashKey] = now
+	} else {
+		session.stateEntries--
+	}
 	if state.trackCoverage {
 		coverage := session.coverage[state.endpointKey]
 		coverage.seen = true
@@ -292,7 +302,9 @@ func (session *Session) reservationLocked(reservation Reservation) (*reservation
 
 func (session *Session) finishPendingLocked(id uint64, state *reservationState) {
 	delete(session.pending, id)
-	delete(session.pendingExact, state.fingerprint)
+	if state.trackHash {
+		delete(session.pendingExact, state.hashKey)
+	}
 }
 
 func (session *Session) releaseLocked(id uint64, state *reservationState) {
