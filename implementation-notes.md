@@ -62,4 +62,5 @@ This policy was superseded by the independent HASH/PARAM/SMART strategy API belo
 - SMART deduplicates complete parameter location/name shapes, ignores values, treats an empty parameter set as a shape, and allows incomplete parsing without HASH fallback.
 - Adapted session reservation accounting so strategies without persistent dedup state do not retain request entries after commit.
 - PARAM duplicate tracking is endpoint-scoped and includes the authentication group. The first complete empty-parameter request is held as a reservation and recorded only after commit; release allows retry.
-- Verification passed: build, full tests (91 tests), race detector, and vet. Statement coverage is 90.1%; Go caches used `go-build` and `.gomod-cache`.
+- Added PARAM-specific endpoint grouping, capacity, and TTL tests; renamed a stale parser-limit test that implied HASH fallback.
+- Verification passed: build, full tests (93 tests), race detector, and vet. Statement coverage is 90.6%; Go caches used `go-build` and `.gomod-cache`.

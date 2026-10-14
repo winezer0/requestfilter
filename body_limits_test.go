@@ -59,7 +59,7 @@ func TestMultipartEmptyFilenameRemainsAFileField(t *testing.T) {
 	}
 }
 
-func TestBodyParserLimitsFallBackToExactDedup(t *testing.T) {
+func TestBodyParserLimitsAllowIncompleteRequestsWithoutHashFallback(t *testing.T) {
 	tests := []struct {
 		name        string
 		contentType string

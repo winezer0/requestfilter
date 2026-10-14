@@ -3,6 +3,7 @@ package requestfilter
 import (
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestRequireParametersAllowsFirstAndDropsRepeatedCompleteNoParameterRequests(t *testing.T) {
@@ -49,16 +50,23 @@ func TestRequireParametersGroupsEmptyRequestsByAuthenticationAndEndpoint(t *test
 		request,
 		{Method: "GET", URL: "https://example.test/other", BodyCaptured: true},
 		{Method: "GET", URL: "https://example.test/", AuthenticationGroupID: "account-b", BodyCaptured: true},
+		{Method: "GET", URL: "https://example.test/", Header: http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}, BodyCaptured: true},
+		{Method: "GET", URL: "https://example.test/", Header: http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}, BodyCaptured: true},
+		{Method: "POST", URL: "https://example.test/", Header: http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}, BodyCaptured: true},
+		{Method: "POST", URL: "https://example.test/", Header: http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}, BodyCaptured: true},
 	}
 	result, err := FilterBatch(requests, options)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Accepted) != 3 {
-		t.Fatalf("len(Accepted) = %d, want 3", len(result.Accepted))
+	if len(result.Accepted) != 5 {
+		t.Fatalf("len(Accepted) = %d, want 5", len(result.Accepted))
 	}
-	if result.Decisions[1].Action != ActionDrop || result.Decisions[2].Action != ActionAllow || result.Decisions[3].Action != ActionAllow {
-		t.Fatalf("decisions = %#v, want only repeated same-group endpoint dropped", result.Decisions)
+	wantActions := []Action{ActionAllow, ActionDrop, ActionAllow, ActionAllow, ActionAllow, ActionDrop, ActionAllow, ActionDrop}
+	for index, want := range wantActions {
+		if got := result.Decisions[index].Action; got != want {
+			t.Fatalf("decision[%d].Action = %q, want %q; decisions = %#v", index, got, want, result.Decisions)
+		}
 	}
 }
 
@@ -90,6 +98,48 @@ func TestRequireParametersPendingEmptyRequestCanBeRetried(t *testing.T) {
 	decision, _, err = session.Reserve(request)
 	if err != nil || decision.Action != ActionDrop || decision.Reason != ReasonNoParameters {
 		t.Fatalf("Reserve(after commit) = (%#v, %v), want no-parameters duplicate drop", decision, err)
+	}
+}
+
+func TestRequireParametersEmptyRequestStateExpires(t *testing.T) {
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyRequireParameters, EntryTTL: 10 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	request := Request{Method: "GET", URL: "https://example.test/", BodyCaptured: true}
+	decision, reservation, err := session.Reserve(request)
+	if err != nil || decision.Action != ActionAllow {
+		t.Fatalf("Reserve(first) = (%#v, %v), want allow", decision, err)
+	}
+	if err := session.Commit(reservation); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	decision, _, err = session.Reserve(request)
+	if err != nil || decision.Action != ActionAllow {
+		t.Fatalf("Reserve(after TTL) = (%#v, %v), want allow", decision, err)
+	}
+}
+
+func TestRequireParametersEmptyRequestUsesSessionCapacity(t *testing.T) {
+	session, err := NewSession(Options{DedupStrategy: DedupStrategyRequireParameters, MaxEntries: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	first := Request{Method: "GET", URL: "https://example.test/first", BodyCaptured: true}
+	second := Request{Method: "GET", URL: "https://example.test/second", BodyCaptured: true}
+	decision, reservation, err := session.Reserve(first)
+	if err != nil || decision.Action != ActionAllow {
+		t.Fatalf("Reserve(first) = (%#v, %v), want allow", decision, err)
+	}
+	if err := session.Commit(reservation); err != nil {
+		t.Fatal(err)
+	}
+	decision, _, err = session.Reserve(second)
+	if err != nil || decision.Action != ActionReject || decision.Reason != ReasonCapacity {
+		t.Fatalf("Reserve(second) = (%#v, %v), want capacity reject", decision, err)
 	}
 }
 
