@@ -8,7 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/winezer0/requestfilter"
 )
 
 func TestToFilterRequestMapsRelativeAndAbsoluteURLs(t *testing.T) {
@@ -164,6 +167,99 @@ func TestToFilterRequestPreservesChunkedHTTPBody(t *testing.T) {
 	}
 	if response.StatusCode != http.StatusNoContent {
 		t.Fatalf("response status = %d, want %d", response.StatusCode, http.StatusNoContent)
+	}
+}
+
+func TestHTTPFlowDeduplicatesAndForwardsByAuthentication(t *testing.T) {
+	const wantBody = `{"item":"value"}`
+	filter, err := requestfilter.NewSession(requestfilter.Options{
+		DedupStrategy: requestfilter.DedupStrategySelectedFieldsHash,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer filter.Close()
+
+	var forwardedMu sync.Mutex
+	forwardedBodies := make([]string, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		filtered, err := toFilterRequest(request, "")
+		if err != nil {
+			t.Errorf("toFilterRequest() error = %v", err)
+			http.Error(writer, "mapping failed", http.StatusBadRequest)
+			return
+		}
+		decision, reservation, err := filter.Reserve(filtered)
+		if err != nil {
+			t.Errorf("Reserve() error = %v", err)
+			http.Error(writer, "filter failed", http.StatusBadRequest)
+			return
+		}
+		switch decision.Action {
+		case requestfilter.ActionAllow:
+			body, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Errorf("read forwarded request body: %v", err)
+				_ = filter.Release(reservation)
+				http.Error(writer, "body read failed", http.StatusBadRequest)
+				return
+			}
+			forwardedMu.Lock()
+			forwardedBodies = append(forwardedBodies, string(body))
+			forwardedMu.Unlock()
+			if err := filter.Commit(reservation); err != nil {
+				t.Errorf("Commit() error = %v", err)
+				http.Error(writer, "commit failed", http.StatusServiceUnavailable)
+				return
+			}
+			writer.WriteHeader(http.StatusAccepted)
+		case requestfilter.ActionDrop:
+			writer.WriteHeader(http.StatusNoContent)
+		case requestfilter.ActionRetry, requestfilter.ActionReject:
+			t.Errorf("unexpected decision action %q", decision.Action)
+			http.Error(writer, "unexpected filter action", http.StatusServiceUnavailable)
+		default:
+			t.Errorf("unknown decision action %q", decision.Action)
+			http.Error(writer, "unknown filter action", http.StatusInternalServerError)
+		}
+	}))
+	defer server.Close()
+
+	client := server.Client()
+	for _, test := range []struct {
+		name       string
+		cookie     string
+		wantStatus int
+	}{
+		{name: "first identity request", cookie: "session=profile-a", wantStatus: http.StatusAccepted},
+		{name: "same identity duplicate", cookie: "session=profile-a", wantStatus: http.StatusNoContent},
+		{name: "separate identity request", cookie: "session=profile-b", wantStatus: http.StatusAccepted},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request, err := http.NewRequest(http.MethodPost, server.URL+"/api?item=1", strings.NewReader(wantBody))
+			if err != nil {
+				t.Fatal(err)
+			}
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Cookie", test.cookie)
+			response, err := client.Do(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response.Body.Close()
+			if response.StatusCode != test.wantStatus {
+				t.Fatalf("status = %d, want %d", response.StatusCode, test.wantStatus)
+			}
+		})
+	}
+
+	if len(forwardedBodies) != 2 {
+		t.Fatalf("forwarded body count = %d, want 2", len(forwardedBodies))
+	}
+	for index, body := range forwardedBodies {
+		if body != wantBody {
+			t.Errorf("forwarded body %d = %q, want %q", index, body, wantBody)
+		}
 	}
 }
 

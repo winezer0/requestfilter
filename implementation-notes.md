@@ -120,6 +120,14 @@ The reference README describes the same broad concepts (exact HASH, empty-parame
 - Verified on the declared minimum Go 1.24.0 and Go 1.26.4: `go test ./...` passed (215 tests across two packages). Also passed `go test ./... -cover` (root 92.6%, adapter 96.4%), `go test -race ./...`, `go vet ./...`, and 5-second fuzz runs for `FuzzExtractParameters` and `FuzzNormalizeURL`.
 - Local command environment used `GOCACHE=go-build` and `GOMODCACHE=.gomod-cache`. The library remains an in-process, per-session filter; callers configure session lifetime and handle capacity rejection and retry decisions.
 
+## 2026-10-14 — Consumer flow smoke test and release candidate
+
+- Reviewed the public `Request`, `Options`, `Decision`, `Session`, and `Reservation` flow against the README: callers map a complete request, reserve it, forward only `ActionAllow`, commit after downstream acceptance, release after downstream failure, and handle `ActionRetry`/`ActionReject` separately.
+- Added an end-to-end `net/http` smoke test with synthetic JSON requests. The first request for a Cookie identity is forwarded and committed, its same-identity duplicate is dropped, and the same request under another Cookie identity is forwarded. The test also verifies that bytes read by the downstream stand-in exactly match the received body.
+- No consuming application or redacted business traffic was available. The smoke test validates package integration semantics, not behavior against a specific production caller.
+- Prepared the first pre-1.0 release as `v0.1.0` in `CHANGELOG.md`. The repository has an MIT license, declares Go 1.24.0, and has no third-party module dependencies. Public API compatibility is not promised before v1.0.0.
+- Verification passed on Go 1.24.0 and Go 1.26.4: all 219 tests across two packages. On Go 1.26.4, race, vet, build, and diff checks passed. Coverage is root 92.6% and adapter 96.4%.
+
 ## 2026-10-14 — Source-derived reference corpus and authentication matrix
 
 - Added `testdata/reference-corpus.json`, pinned to reference commit `69e8da271e5e46862edb0b5b522ae3fa554df0c4`. Eight requests cover query, URL-encoded form, nested JSON, XML, multipart, cross-location name collisions, malformed JSON, and unknown binary bodies.
