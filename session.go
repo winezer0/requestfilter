@@ -484,6 +484,12 @@ func splitEndpointPath(endpointPath string) (host string, segments []string) {
 // were folded earlier are replaced recursively, keeping parent prefixes stable
 // for nested dynamic paths (/users/1/orders/2). The returned path differs from
 // normalized.endpointPath only when at least one position folded.
+//
+// Behavioral edges documented in docs/API.md: after a position folds, the
+// generalized group starts with empty coverage, so shapes committed during the
+// learning phase may be allowed once more; requests with ParameterStatusPartial
+// keep participating in learning but never contribute path parameters to
+// coverage, matching the existing conservative semantics.
 func (session *Session) learnPathSegmentsLocked(authenticationGroup string, normalized normalizedRequest, now time.Time) (string, []Parameter) {
 	host, segments := splitEndpointPath(normalized.endpointPath)
 	if len(segments) == 0 {

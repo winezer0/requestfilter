@@ -44,6 +44,13 @@ go get github.com/winezer0/requestfilter@v0.1.0
 
 `Options.DedupStrategy` 选择且只选择一种策略。`Options.PathSegmentThreshold`（默认 0，禁用）控制 `DedupStrategyCoverageParameters` 的动态路径段泛化：某路径位置（按认证组、方法、host 与已泛化父前缀隔离）观测到 ≥N 个不同转义值后折叠为 `{dyn}` 并追加 `ParameterPath` 参数；合法范围为 1–4096。折叠状态与观测集合均计入 `MaxEntries` 并按 `EntryTTL` 过期。其零值 `DedupStrategyNone` 表示不做过滤。
 
+泛化的两条行为边界：
+
+1. **过渡期重复**：位置折叠后，泛化组的覆盖状态从零开始，学习期已提交的参数形状在泛化组内可能再次放行一次。对爬虫这是期望行为（泛化代表页需要重新取内容），对扫描器是可容忍的少量重复。
+2. **与 `ParameterStatus` 的交互**：路径段学习本身总会执行（用于判断折叠），但只有 `ParameterStatusComplete` 的请求才把 `ParameterPath` 参数并入覆盖判定；`Partial` 请求照常参与学习、不参与覆盖、不记录形状，与既有保守语义一致。
+
+泛化仅在 `DedupStrategyCoverageParameters` 下生效，`DedupStrategyRequireParameters` 不做路径泛化：后者的分组 key 是精确端点，语义为「每个具体路径的无参请求只测一次」，泛化会把它改变为「每个模式只测一次」，属于对其核心语义的修改；而 `CoverageParameters` 的分组 key 本来就是形状，泛化是形状语义的自然扩展。
+
 ### 去重策略
 
 | 策略 | 行为 |
