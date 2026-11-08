@@ -65,8 +65,14 @@ type Options struct {
 	MaxXMLNodes int
 	// MaxMultipartParts bounds parsed multipart parts; zero uses the package default.
 	MaxMultipartParts int
-	EntryTTL          time.Duration
-	ReservationTTL    time.Duration
+	// PathSegmentThreshold enables learned dynamic path-segment generalization for
+	// DedupStrategyCoverageParameters. When a path position has observed at least
+	// this many distinct escaped values, the position is generalized into a path
+	// parameter and later variants are subject to coverage. Zero disables the
+	// feature; crawlers typically use 10 (mirroring katana's -fsu default).
+	PathSegmentThreshold int
+	EntryTTL             time.Duration
+	ReservationTTL       time.Duration
 }
 
 // Action describes what the caller should do with a request.
@@ -108,6 +114,11 @@ const (
 	ParameterMultipartField ParameterLocation = "multipart_field"
 	// ParameterMultipartFile identifies a multipart file field by its field name.
 	ParameterMultipartFile ParameterLocation = "multipart_file"
+	// ParameterPath identifies a learned dynamic path segment. It is emitted by
+	// DedupStrategyCoverageParameters when PathSegmentThreshold is enabled and a
+	// path position has observed at least that many distinct values; the position
+	// is then generalized and participates in coverage like any other parameter.
+	ParameterPath ParameterLocation = "path_segment"
 )
 
 // Parameter identifies a parameter without retaining its value.
@@ -153,7 +164,8 @@ type normalizedOptions struct {
 }
 
 func normalizeOptions(options Options) (normalizedOptions, error) {
-	if options.DedupStrategy > DedupStrategyCoverageParameters || options.EntryTTL < 0 || options.ReservationTTL < 0 {
+	if options.DedupStrategy > DedupStrategyCoverageParameters || options.EntryTTL < 0 || options.ReservationTTL < 0 ||
+		options.PathSegmentThreshold < 0 || options.PathSegmentThreshold > 4096 {
 		return normalizedOptions{}, ErrInvalidOptions
 	}
 	if options.MaxEntries == 0 {

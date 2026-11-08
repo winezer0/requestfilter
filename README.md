@@ -1,6 +1,6 @@
 # requestfilter
 
-独立的 Go HTTP 请求过滤工具包，支持批量和流式过滤。提供四种互相独立的策略：`DedupStrategyNone`、`DedupStrategySelectedFieldsHash`、`DedupStrategyRequireParameters` 和 `DedupStrategyCoverageParameters`。认证信息是过滤时的分组条件，不是单独的策略。
+独立的 Go HTTP 请求过滤工具包，支持批量和流式过滤。提供四种互相独立的策略：`DedupStrategyNone`、`DedupStrategySelectedFieldsHash`、`DedupStrategyRequireParameters` 和 `DedupStrategyCoverageParameters`。`DedupStrategyCoverageParameters` 支持可选的动态路径段泛化（`PathSegmentThreshold`）：某路径位置累计出现足够多的不同值后折叠为参数并纳入覆盖判定，可用于爬虫场景防止 `/users/123`、`/users/456` 式的无限膨胀。认证信息是过滤时的分组条件，不是单独的策略。
 
 **API 参考：**[查看完整 API 文档](docs/API.md)，包括批量和流式调用、策略语义、认证分组、输入限制及错误处理。
 
@@ -248,3 +248,7 @@ go test -run=NO_TESTS -bench=Benchmark -benchmem -benchtime=1s -count=3 ./...
 ```
 
 `testdata/reference-corpus.json` pins regression requests to the reference project's source snapshot and records the source-derived expectation for each case. The reference delegates raw request parsing to Burp's `IExtensionHelpers`; the corpus marks results that cannot be confirmed from checked-in source instead of presenting them as Burp runtime observations.
+
+## v0.1.2 — 未发布
+
+- `DedupStrategyCoverageParameters` 新增 `PathSegmentThreshold`：启用动态路径段学习与泛化。某路径位置观测到 ≥N 个不同转义值后，该位置折叠为 `{dyn}` 并以 `ParameterPath`（`path_segment`）参数参与覆盖判定；泛化后的路径重新参与端点分组，同组后续变体按覆盖丢弃。默认 0 表示禁用，行为与 v0.1.1 完全一致。折叠状态按 `EntryTTL` 过期，并计入 `MaxEntries` 容量。

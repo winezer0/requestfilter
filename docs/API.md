@@ -27,7 +27,7 @@ go get github.com/winezer0/requestfilter@v0.1.0
 
 其他导出类型包括 `DedupStrategy`、`Action`、`Reason`、`Reservation`、`Parameter`、`ParameterLocation` 和 `ParameterStatus`。导出的错误为 `ErrInvalidOptions`、`ErrInvalidRequest`、`ErrSessionClosed` 和 `ErrReservationNotFound`。
 
-`Parameter` 由 `Location` 和 `Name` 组成，不含参数值。位置常量包括 `ParameterQuery`、`ParameterForm`、`ParameterJSON`、`ParameterXML`、`ParameterMultipartField` 和 `ParameterMultipartFile`。解析出的参数名称只用于内部策略判定；当前 API 不返回参数名称集合。`ParameterStatus` 可能为 `ParameterStatusNotRequested`、`ParameterStatusComplete` 或 `ParameterStatusPartial`。
+`Parameter` 由 `Location` 和 `Name` 组成，不含参数值。位置常量包括 `ParameterQuery`、`ParameterForm`、`ParameterJSON`、`ParameterXML`、`ParameterMultipartField`、`ParameterMultipartFile` 和 `ParameterPath`（仅 `PathSegmentThreshold` 启用后由学习产生）。解析出的参数名称只用于内部策略判定；当前 API 不返回参数名称集合。`ParameterStatus` 可能为 `ParameterStatusNotRequested`、`ParameterStatusComplete` 或 `ParameterStatusPartial`。
 
 ## 请求和选项
 
@@ -42,7 +42,7 @@ go get github.com/winezer0/requestfilter@v0.1.0
 | `BodyCaptured` | 是否已完整捕获正文；已确认无正文时也应设为 `true`。 |
 | `AuthenticationGroupID` | 可选的稳定、非秘密调用方身份标识，会与内置认证来源共同分组。 |
 
-`Options.DedupStrategy` 选择且只选择一种策略。其零值 `DedupStrategyNone` 表示不做过滤。
+`Options.DedupStrategy` 选择且只选择一种策略。`Options.PathSegmentThreshold`（默认 0，禁用）控制 `DedupStrategyCoverageParameters` 的动态路径段泛化：某路径位置（按认证组、方法、host 与已泛化父前缀隔离）观测到 ≥N 个不同转义值后折叠为 `{dyn}` 并追加 `ParameterPath` 参数；合法范围为 1–4096。折叠状态与观测集合均计入 `MaxEntries` 并按 `EntryTTL` 过期。其零值 `DedupStrategyNone` 表示不做过滤。
 
 ### 去重策略
 
@@ -51,7 +51,7 @@ go get github.com/winezer0/requestfilter@v0.1.0
 | `DedupStrategyNone` | 不比较请求，放行所有有效请求。 |
 | `DedupStrategySelectedFieldsHash` | 比较方法、规范化 URL、Content-Type、正文捕获状态和正文内容；可追加指定请求头。首次请求放行，下游接收并提交后记录；之后相同的已提交请求丢弃。 |
 | `DedupStrategyRequireParameters` | 完整解析后检查请求是否无参数，并按认证组、方法、scheme/host/port、路径和媒体类型分组。每组首个已提交的完整无参请求放行；后续无参请求丢弃。带参数请求放行且不记录。 |
-| `DedupStrategyCoverageParameters` | 按认证组、方法、scheme/host/port、路径、媒体类型及参数位置/名称比较，忽略参数值。新参数位置或名称放行；已完整覆盖的请求丢弃。 |
+| `DedupStrategyCoverageParameters` | 按认证组、方法、scheme/host/port、路径、媒体类型及参数位置/名称比较，忽略参数值。新参数位置或名称放行；已完整覆盖的请求丢弃。启用 `PathSegmentThreshold` 后，累计出现 ≥N 个不同值的路径位置会泛化为 `ParameterPath` 参数并参与覆盖。 |
 
 两种参数策略遇到不完整参数解析时直接放行且不记录状态。`DedupStrategyCoverageParameters` 将空参数集合也视为一种形状：同组第一次已提交的无参请求放行，后续相同空形状请求丢弃。策略状态只在放行请求成功提交后生效。
 

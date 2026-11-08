@@ -3,6 +3,8 @@ package requestfilter
 import (
 	"crypto/rand"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -21,6 +23,12 @@ type Session struct {
 	pendingEmpty map[string]uint64
 	pending      map[uint64]*reservationState
 	coverage     map[string]*coverageState
+	// pathObserved tracks distinct escaped values per learned path position
+	// (key = auth/method/host/generalized-prefix/segment index) until the
+	// position accumulates PathSegmentThreshold distinct values.
+	pathObserved map[string]map[string]time.Time
+	// pathFolded marks positions that have been generalized into {dyn}.
+	pathFolded map[string]time.Time
 }
 
 type reservationState struct {
@@ -52,6 +60,7 @@ func NewSession(options Options) (*Session, error) {
 		exact:   make(map[string]time.Time), pendingExact: make(map[string]uint64),
 		emptyParams: make(map[string]time.Time), pendingEmpty: make(map[string]uint64),
 		pending: make(map[uint64]*reservationState), coverage: make(map[string]*coverageState),
+		pathObserved: make(map[string]map[string]time.Time), pathFolded: make(map[string]time.Time),
 	}
 	if _, err := rand.Read(session.id[:]); err != nil {
 		return nil, fmt.Errorf("requestfilter: initialize session: %w", err)
@@ -98,6 +107,20 @@ func (session *Session) Reserve(request Request) (Decision, Reservation, error) 
 		normalized.parameterStatus == ParameterStatusComplete && len(normalized.parameters) == 0
 	trackCoverage := session.options.DedupStrategy == DedupStrategyCoverageParameters &&
 		normalized.parameterStatus == ParameterStatusComplete
+	// Learned path-segment generalization (CoverageParameters only): observe path
+	// positions, fold hot positions into {dyn} parameters, and re-derive the
+	// endpoint key so generalized variants share one coverage group. Must run
+	// before the coverage lookup below.
+	if trackCoverage && session.options.PathSegmentThreshold > 0 {
+		generalizedPath, segmentParameters := session.learnPathSegmentsLocked(authenticationGroup, normalized, now)
+		if generalizedPath != normalized.endpointPath {
+			normalized.endpointPath = generalizedPath
+			normalized.endpointKey = digestFields(authenticationGroup, normalized.method, normalized.endpointPath, normalized.mediaType)
+		}
+		if len(segmentParameters) > 0 {
+			normalized.parameters = append(normalized.parameters, segmentParameters...)
+		}
+	}
 	var coverage *coverageState
 	if trackCoverage {
 		coverage = session.coverage[normalized.endpointKey]
@@ -274,6 +297,8 @@ func (session *Session) Close() {
 	clear(session.pendingEmpty)
 	clear(session.pending)
 	clear(session.coverage)
+	clear(session.pathObserved)
+	clear(session.pathFolded)
 }
 
 func (session *Session) coverageDecisionLocked(coverage *coverageState, parameterIDs []string, now time.Time) (Action, Reason) {
@@ -372,6 +397,26 @@ func (session *Session) expireLocked(now time.Time) {
 	if session.options.EntryTTL == 0 {
 		return
 	}
+	if session.options.PathSegmentThreshold > 0 {
+		for key, values := range session.pathObserved {
+			for value, lastSeen := range values {
+				if now.Sub(lastSeen) > session.options.EntryTTL {
+					delete(values, value)
+					session.stateEntries--
+				}
+			}
+			if len(values) == 0 {
+				delete(session.pathObserved, key)
+				session.stateEntries--
+			}
+		}
+		for key, foldedAt := range session.pathFolded {
+			if now.Sub(foldedAt) > session.options.EntryTTL {
+				delete(session.pathFolded, key)
+				session.stateEntries--
+			}
+		}
+	}
 	for fingerprint, lastSeen := range session.exact {
 		if now.Sub(lastSeen) > session.options.EntryTTL {
 			delete(session.exact, fingerprint)
@@ -406,6 +451,109 @@ func newCoverageState() *coverageState {
 		parameters:       make(map[string]time.Time),
 		pendingParams:    make(map[string]map[uint64]struct{}),
 		pendingEndpoints: make(map[uint64]struct{}),
+	}
+}
+
+// splitEndpointPath splits a canonical endpoint (scheme://host/path) into its
+// host part and its raw escaped path segments. A trailing slash is ignored.
+func splitEndpointPath(endpointPath string) (host string, segments []string) {
+	marker := strings.Index(endpointPath, "://")
+	if marker < 0 {
+		return endpointPath, nil
+	}
+	rest := endpointPath[marker+3:]
+	slash := strings.Index(rest, "/")
+	if slash < 0 {
+		return endpointPath, nil
+	}
+	host = endpointPath[:marker+3+slash]
+	path := rest[slash:]
+	trimmed := strings.Trim(path, "/")
+	if trimmed == "" {
+		return host, nil
+	}
+	return host, strings.Split(trimmed, "/")
+}
+
+// learnPathSegmentsLocked implements dynamic path-segment generalization for
+// DedupStrategyCoverageParameters. Each path position observes its distinct
+// escaped values; once a position has seen at least PathSegmentThreshold
+// distinct values it is folded into {dyn}, becomes a path parameter that
+// participates in coverage, and the endpoint key is re-derived over the
+// generalized path so later variants share one coverage group. Positions that
+// were folded earlier are replaced recursively, keeping parent prefixes stable
+// for nested dynamic paths (/users/1/orders/2). The returned path differs from
+// normalized.endpointPath only when at least one position folded.
+func (session *Session) learnPathSegmentsLocked(authenticationGroup string, normalized normalizedRequest, now time.Time) (string, []Parameter) {
+	host, segments := splitEndpointPath(normalized.endpointPath)
+	if len(segments) == 0 {
+		return normalized.endpointPath, nil
+	}
+	threshold := session.options.PathSegmentThreshold
+	var generalized []string
+	var parameters []Parameter
+	prefix := ""
+	changed := false
+	for index, segment := range segments {
+		key := digestFields(authenticationGroup, normalized.method, host, prefix, strconv.Itoa(index))
+		if _, folded := session.pathFolded[key]; folded {
+			generalized = append(generalized, "{dyn}")
+			parameters = append(parameters, Parameter{Location: ParameterPath, Name: "seg" + strconv.Itoa(index)})
+			prefix += "/{dyn}"
+			changed = true
+			continue
+		}
+		values := session.pathObserved[key]
+		if values == nil {
+			values = make(map[string]time.Time)
+			session.pathObserved[key] = values
+			session.stateEntries++
+		}
+		if _, exists := values[segment]; !exists {
+			values[segment] = now
+			session.stateEntries++
+		} else {
+			values[segment] = now
+		}
+		if len(values) >= threshold {
+			session.stateEntries -= len(values)
+			delete(session.pathObserved, key)
+			session.stateEntries--
+			session.pathFolded[key] = now
+			session.stateEntries++
+			generalized = append(generalized, "{dyn}")
+			parameters = append(parameters, Parameter{Location: ParameterPath, Name: "seg" + strconv.Itoa(index)})
+			prefix += "/{dyn}"
+			changed = true
+			continue
+		}
+		generalized = append(generalized, segment)
+		prefix += "/" + segment
+	}
+	if !changed {
+		return normalized.endpointPath, nil
+	}
+	return host + "/" + strings.Join(generalized, "/"), parameters
+}
+
+func expirePathLearningLocked(session *Session, now time.Time) {
+	for key, values := range session.pathObserved {
+		for value, lastSeen := range values {
+			if now.Sub(lastSeen) > session.options.EntryTTL {
+				delete(values, value)
+				session.stateEntries--
+			}
+		}
+		if len(values) == 0 {
+			delete(session.pathObserved, key)
+			session.stateEntries--
+		}
+	}
+	for key, foldedAt := range session.pathFolded {
+		if now.Sub(foldedAt) > session.options.EntryTTL {
+			delete(session.pathFolded, key)
+			session.stateEntries--
+		}
 	}
 }
 

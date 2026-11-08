@@ -20,7 +20,7 @@ type referenceCorpus struct {
 }
 
 type referenceRule struct {
-		Area            string `json:"area"`
+	Area            string `json:"area"`
 	SourceBehavior  string `json:"source_behavior"`
 	PackageBehavior string `json:"package_behavior"`
 	Difference      string `json:"difference"`
@@ -68,9 +68,9 @@ func TestReferenceBehaviorCorpus(t *testing.T) {
 	}
 	wantAreas := map[string]bool{
 		"DedupStrategySelectedFieldsHash": false,
-		"DedupStrategyRequireParameters": false,
+		"DedupStrategyRequireParameters":  false,
 		"DedupStrategyCoverageParameters": false,
-		"AuthenticationGrouping":         false,
+		"AuthenticationGrouping":          false,
 	}
 	for _, rule := range corpus.Metadata.Rules {
 		if _, ok := wantAreas[rule.Area]; !ok {
