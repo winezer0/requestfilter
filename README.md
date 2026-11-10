@@ -172,6 +172,7 @@ func handle(w http.ResponseWriter, r *http.Request, filter *requestfilter.Sessio
 对应的适配实现及成功读体、读体错误、超限恢复、HTTP/HTTPS URL 映射、chunked 正文保真和端到端 Reserve/Commit/认证 Cookie 分组测试位于 `internal/nethttpadapterexample`，由 `go test ./...` 一并编译和验证。
 
 如果请求体没有完整捕获，不要把缺失或截断的内容送入 `Reserve` 并期待精确去重：过滤器无法凭空区分正文不同、但可见部分相同的请求。示例在读体失败或超限时不调用过滤器。`BodyCaptured: false` 表示正文未知，不应被当作“已确认的空请求体”。
+GET/HEAD/OPTIONS 无请求体时会被自动视为已完整捕获，无需显式设置。
 
 过滤器接收的是已解析的 `Request` 字段，不解析原始 HTTP 字节流。通过 `net/http` 接入时，chunked framing 通常已由 HTTP server 解码；HTTP/2 伪头也应映射到 `Method`、URL 和普通头字段。`CONNECT host:port` 这样的 authority-form 和 `OPTIONS *` 这样的 asterisk-form 不能直接作为 `URL` 传入；集成方需先决定它们对应的目标 URL/资源身份，或在进入本包前旁路处理。本包不负责验证原始报文行、传输分块或 HTTP/2 framing。
 
@@ -190,7 +191,7 @@ func handle(w http.ResponseWriter, r *http.Request, filter *requestfilter.Sessio
 
 - 默认方法为空时按 `GET` 处理。URL 只接受 HTTP/HTTPS，拒绝 userinfo；主机名转小写，移除默认端口和 fragment，保留路径尾斜杠、转义形式、query 顺序和重复参数。
 - `Content-Type` 规范化媒体类型及参数；额外请求头名大小写不敏感，多个值按原顺序参与摘要。
-- `BodyCaptured` 区分未捕获请求体和已捕获的空请求体。非空 `Body` 必须标记为已捕获。
+- `BodyCaptured` 区分未捕获请求体和已捕获的空请求体。非空 `Body` 必须标记为已捕获；GET/HEAD/OPTIONS 无 body 时自动视为已捕获。
 - 指纹采用带长度边界的 SHA-256 字段摘要，避免直接保存原始 Cookie、Token 或请求体。
 
 ## 策略行为
@@ -206,7 +207,7 @@ func handle(w http.ResponseWriter, r *http.Request, filter *requestfilter.Sessio
 
 参数名称按来源解析。Query 和 URL-encoded form 名称按标准表单规则解码；重复的同位置同名参数折叠为一个名称，空名称会保留。非法百分号转义会使解析状态变为 `partial`。JSON 对象递归展开为 JSON Pointer 路径（例如 `/user/id`、`/items/0/id`）；数组索引纳入名称，顶层标量和空对象/数组用 `$` 表示。同一对象内的重复键折叠为一个路径。XML 记录叶子元素及属性路径，例如 `/user/id`、`/user/@role`；同级同名重复元素加从 0 开始的索引，命名空间以 `{URI}name` 纳入路径。Multipart 记录普通字段名和文件字段名，不保留字段值、文件名或文件内容；重复的同位置同名部件折叠为一个名称，`filename*` 也识别为文件字段。
 
-未知媒体类型、未捕获正文、解析错误或解析资源超限会产生 `ParameterStatusPartial`。`DedupStrategyRequireParameters` 和 `DedupStrategyCoverageParameters` 在此情况下直接放行且不记录策略状态。`BodyCaptured: false` 对所有 HTTP 方法都表示正文未知；已确认无正文时应设置为 `true`。请求正文总大小受 `MaxBodyBytes` 限制。
+未知媒体类型、未捕获正文、解析错误或解析资源超限会产生 `ParameterStatusPartial`。`DedupStrategyRequireParameters` 和 `DedupStrategyCoverageParameters` 在此情况下直接放行且不记录策略状态。`BodyCaptured: false` 对非幂等方法表示正文未知；GET/HEAD/OPTIONS 无请求体时自动视为已捕获（防止漏设导致参数状态永远 Partial、覆盖判定静默失效）。请求正文总大小受 `MaxBodyBytes` 限制。
 
 ## 认证上下文
 

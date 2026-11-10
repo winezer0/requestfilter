@@ -68,8 +68,10 @@ func TestStructuredBodyFormatsParticipateInCoverage(t *testing.T) {
 	}
 }
 
+// GET/HEAD/OPTIONS 无 body 已强制视为已捕获（见 canonical.go），未捕获
+// 语义只对非幂等方法保留。
 func TestDedupStrategyCoverageParametersBypassesUncapturedBodies(t *testing.T) {
-	for _, method := range []string{"GET", "HEAD"} {
+	for _, method := range []string{"POST"} {
 		t.Run(method, func(t *testing.T) {
 			session, err := NewSession(Options{DedupStrategy: DedupStrategyCoverageParameters})
 			if err != nil {

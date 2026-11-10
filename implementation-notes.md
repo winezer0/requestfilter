@@ -135,3 +135,15 @@ The reference README describes broad request filtering concepts but does not def
 - The reference checkout has no tests and its Maven project does not provide a usable implementation of Burp's `IExtensionHelpers`. The corpus does not claim runtime output from Burp; obtaining that oracle requires executing the extension inside Burp or adding a supported Burp test harness.
 - Added a matrix covering the three filtering strategies that use authentication grouping and five identity sources, caller-ID composition checks, and per-strategy `Proxy-Authorization` exclusion checks. The keyword-header matrix passes mixed-case names through the raw `http.Header` map.
 - Verification passed after the source-level audit update: `go build ./...`, `go test -coverprofile coverage ./...`, `go test -race ./...`, `go vet ./...`, and `git diff --check`. All 137 tests passed; statement coverage is 91.4%. The coverage profile was a temporary local artifact. Go caches used `go-build` and `.gomod-cache`.
+
+## GET/HEAD/OPTIONS 无 body 强制 BodyCaptured（2026-11-10）
+
+爬虫集成时发现：无 body 的 GET 若漏设 `BodyCaptured`，参数状态永远是
+Partial——覆盖判定（trackCoverage）与路径段泛化（learnPathSegmentsLocked）
+都在 Partial 闸门之内，整体静默失效且无任何错误信号（Reserve 照常返回
+allow/new_request）。修复：normalizeRequest 对 GET/HEAD/OPTIONS 且
+Body 为空的请求强制 BodyCaptured=true。非幂等方法（POST 等）的
+「未捕获正文 → Partial 放行」语义保持不变；带 body 且未捕获仍是
+ErrInvalidRequest（canonical.go 的既有校验）。行为变化点：
+TestDedupStrategyCoverageParametersBypassesUncapturedBodies 的方法
+从 GET/HEAD 改为 POST，「uncaptured empty body is partial」用例改用 POST。

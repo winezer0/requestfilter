@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### 修复
+
+- **GET/HEAD/OPTIONS 无 body 自动视为 BodyCaptured**：此前漏设
+  `BodyCaptured` 时无 body GET 的参数状态永远 Partial，覆盖判定与
+  路径泛化整体静默失效（爬虫场景实际踩坑）。非幂等方法未捕获正文
+  仍按 Partial 放行，带 body 未捕获仍报 ErrInvalidRequest。
+
 ## v0.1.0 — 2026-10-14
 
 Initial pre-1.0 release of the standalone Go request filtering package.

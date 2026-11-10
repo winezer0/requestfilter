@@ -165,7 +165,9 @@ func TestParameterExtractionEdgeCases(t *testing.T) {
 		{
 			name: "uncaptured empty body is partial",
 			request: Request{
-				URL: "https://example.test/",
+				// GET 无 body 会被强制视为已捕获；未捕获语义对非幂等方法保留
+				Method: "POST",
+				URL:    "https://example.test/",
 			},
 			wantStatus: ParameterStatusPartial,
 		},

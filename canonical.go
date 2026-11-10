@@ -39,6 +39,14 @@ func normalizeRequest(request Request, options normalizedOptions) (normalizedReq
 	if !validToken(method) {
 		return normalizedRequest{}, ErrInvalidRequest
 	}
+	// 无 body 的幂等方法（GET/HEAD/OPTIONS）没有可采的请求体，
+	// 视为已完整捕获；否则调用方漏设 BodyCaptured 会让参数状态
+	// 永远 Partial，覆盖判定与路径泛化整体静默失效。
+	if method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions {
+		if len(request.Body) == 0 {
+			request.BodyCaptured = true
+		}
+	}
 	canonicalURL, endpointPath, err := normalizeURL(request.URL)
 	if err != nil || len(canonicalURL) > options.MaxURLBytes {
 		return normalizedRequest{}, ErrInvalidRequest

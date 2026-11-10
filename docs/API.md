@@ -39,7 +39,7 @@ go get github.com/winezer0/requestfilter@v0.1.0
 | `URL` | 完整的 HTTP 或 HTTPS URL。 |
 | `Header` | `http.Header` 请求头。 |
 | `Body` | 请求正文的字节。 |
-| `BodyCaptured` | 是否已完整捕获正文；已确认无正文时也应设为 `true`。 |
+| `BodyCaptured` | 是否已完整捕获正文；已确认无正文时也应设为 `true`。GET/HEAD/OPTIONS 无 body 时自动视为已捕获。 |
 | `AuthenticationGroupID` | 可选的稳定、非秘密调用方身份标识，会与内置认证来源共同分组。 |
 
 `Options.DedupStrategy` 选择且只选择一种策略。`Options.PathSegmentThreshold`（默认 0，禁用）控制 `DedupStrategyCoverageParameters` 的动态路径段泛化：某路径位置（按认证组、方法、host 与已泛化父前缀隔离）观测到 ≥N 个不同转义值后折叠为 `{dyn}` 并追加 `ParameterPath` 参数；合法范围为 1–4096。折叠状态与观测集合均计入 `MaxEntries` 并按 `EntryTTL` 过期。其零值 `DedupStrategyNone` 表示不做过滤。
